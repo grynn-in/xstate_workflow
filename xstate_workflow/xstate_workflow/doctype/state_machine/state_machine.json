@@ -1,0 +1,198 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:machine_id",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_section",
+  "machine_id",
+  "title",
+  "description",
+  "column_break_basic",
+  "is_active",
+  "version",
+  "attached_doctype",
+  "configuration_section",
+  "json_config",
+  "react_flow_config",
+  "logic_section",
+  "logic_module",
+  "guards_table",
+  "actions_table",
+  "metadata_section",
+  "created_by",
+  "modified_by",
+  "column_break_meta",
+  "last_exported_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Information"
+  },
+  {
+   "fieldname": "machine_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Machine ID",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "default": "1",
+   "fieldname": "version",
+   "fieldtype": "Int",
+   "label": "Version"
+  },
+  {
+   "fieldname": "attached_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Attached DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "configuration_section",
+   "fieldtype": "Section Break",
+   "label": "XState Configuration"
+  },
+  {
+   "fieldname": "json_config",
+   "fieldtype": "Code",
+   "label": "XState JSON Config",
+   "options": "JSON",
+   "reqd": 1
+  },
+  {
+   "fieldname": "react_flow_config",
+   "fieldtype": "Code",
+   "label": "React Flow Config",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "logic_section",
+   "fieldtype": "Section Break",
+   "label": "Logic & Actions"
+  },
+  {
+   "description": "Python module path for guards/actions (e.g., xstate_workflow.logic.approval_workflow)",
+   "fieldname": "logic_module",
+   "fieldtype": "Data",
+   "label": "Logic Module"
+  },
+  {
+   "fieldname": "guards_table",
+   "fieldtype": "Table",
+   "label": "Guards",
+   "options": "XSM Guard"
+  },
+  {
+   "fieldname": "actions_table",
+   "fieldtype": "Table",
+   "label": "Actions",
+   "options": "XSM Action"
+  },
+  {
+   "fieldname": "metadata_section",
+   "fieldtype": "Section Break",
+   "label": "Metadata"
+  },
+  {
+   "default": "__user",
+   "fieldname": "created_by",
+   "fieldtype": "Link",
+   "label": "Created By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "modified_by",
+   "fieldtype": "Link",
+   "label": "Modified By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_exported_at",
+   "fieldtype": "Datetime",
+   "label": "Last Exported At",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "link_doctype": "Machine Instance",
+   "link_fieldname": "machine"
+  }
+ ],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Xstate Workflow",
+ "name": "State Machine",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Workflow Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "search_fields": "title,attached_doctype",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 1
+}

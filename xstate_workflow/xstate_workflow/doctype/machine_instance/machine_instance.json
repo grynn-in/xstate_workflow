@@ -1,0 +1,173 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "reference_section",
+  "machine",
+  "reference_doctype",
+  "reference_name",
+  "column_break_ref",
+  "status",
+  "current_state",
+  "state_section",
+  "context",
+  "snapshot",
+  "history_section",
+  "last_event",
+  "last_transition_at",
+  "column_break_history",
+  "transition_count",
+  "error_count",
+  "logs_section",
+  "transition_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "reference_section",
+   "fieldtype": "Section Break",
+   "label": "Reference"
+  },
+  {
+   "fieldname": "machine",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "State Machine",
+   "options": "State Machine",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Reference DocType",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Reference Name",
+   "options": "reference_doctype",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_ref",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "idle",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "idle\nactive\nfinal\nerror"
+  },
+  {
+   "fieldname": "current_state",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Current State",
+   "read_only": 1
+  },
+  {
+   "fieldname": "state_section",
+   "fieldtype": "Section Break",
+   "label": "State Data"
+  },
+  {
+   "fieldname": "context",
+   "fieldtype": "Code",
+   "label": "Context (JSON)",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "snapshot",
+   "fieldtype": "Code",
+   "label": "XState Snapshot",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "history_section",
+   "fieldtype": "Section Break",
+   "label": "History"
+  },
+  {
+   "fieldname": "last_event",
+   "fieldtype": "Data",
+   "label": "Last Event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_transition_at",
+   "fieldtype": "Datetime",
+   "label": "Last Transition At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_history",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "transition_count",
+   "fieldtype": "Int",
+   "label": "Transition Count",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "error_count",
+   "fieldtype": "Int",
+   "label": "Error Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "logs_section",
+   "fieldtype": "Section Break",
+   "label": "Transition Log"
+  },
+  {
+   "fieldname": "transition_log",
+   "fieldtype": "Code",
+   "label": "Transition Log (JSON)",
+   "options": "JSON"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Xstate Workflow",
+ "name": "Machine Instance",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
+ "search_fields": "machine,reference_doctype,reference_name,current_state",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

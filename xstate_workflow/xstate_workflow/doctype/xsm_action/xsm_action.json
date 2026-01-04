@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "action_name",
+  "action_type",
+  "description",
+  "python_code",
+  "is_async",
+  "timeout"
+ ],
+ "fields": [
+  {
+   "fieldname": "action_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Action Name",
+   "reqd": 1
+  },
+  {
+   "default": "entry",
+   "fieldname": "action_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Action Type",
+   "options": "entry\nexit\ntransition"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "description": "Python code for action. Available vars: context, event, doc, frappe",
+   "fieldname": "python_code",
+   "fieldtype": "Code",
+   "label": "Python Code",
+   "options": "Python"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_async",
+   "fieldtype": "Check",
+   "label": "Run in Background"
+  },
+  {
+   "default": "300",
+   "depends_on": "is_async",
+   "fieldname": "timeout",
+   "fieldtype": "Int",
+   "label": "Timeout (seconds)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Xstate Workflow",
+ "name": "XSM Action",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

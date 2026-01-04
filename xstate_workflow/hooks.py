@@ -1,249 +1,156 @@
+# xstate_workflow/xstate_workflow/hooks.py
+"""
+Frappe Hooks Configuration for XState Workflow App
+
+This configures:
+- JS/CSS includes for React Flow editor
+- Scheduler events for delayed transitions and cleanup
+- Document events for auto-triggering workflows
+"""
+
 app_name = "xstate_workflow"
-app_title = "Xstate Workflow"
+app_title = "XState Workflow"
 app_publisher = "Grynn GmbH"
-app_description = "XState for Frappe"
+app_description = "XState-powered workflow engine with React Flow visual builder"
 app_email = "deepak.pai@grynn.ch"
-app_license = "mit"
+app_license = "MIT"
+app_icon = "octicon octicon-git-branch"
+app_color = "#6366f1"
 
-# Apps
-# ------------------
+# ============================================================================
+# INCLUDES
+# ============================================================================
 
-# required_apps = []
+# Include JS/CSS in desk (for form integration)
+app_include_css = "/assets/xstate_workflow/css/workflow.css"
+app_include_js = "/assets/xstate_workflow/js/workflow_client.js"
 
-# Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "xstate_workflow",
-# 		"logo": "/assets/xstate_workflow/logo.png",
-# 		"title": "Xstate Workflow",
-# 		"route": "/xstate_workflow",
-# 		"has_permission": "xstate_workflow.api.permission.has_app_permission"
-# 	}
-# ]
+# Include in website/web pages (for workflow builder)
+web_include_css = [
+    "/assets/xstate_workflow/css/workflow.css",
+    "/assets/xstate_workflow/css/workflow_builder.css"
+]
+web_include_js = [
+    "/assets/xstate_workflow/js/workflow_builder.bundle.js"
+]
 
-# Includes in <head>
-# ------------------
+# ============================================================================
+# WEBSITE
+# ============================================================================
 
-# include js, css files in header of desk.html
-# app_include_css = "/assets/xstate_workflow/css/xstate_workflow.css"
-# app_include_js = "/assets/xstate_workflow/js/xstate_workflow.js"
+# Website context
+website_context = {
+    "favicon": "/assets/xstate_workflow/images/favicon.ico",
+    "splash_image": "/assets/xstate_workflow/images/splash.png"
+}
 
-# include js, css files in header of web template
-# web_include_css = "/assets/xstate_workflow/css/xstate_workflow.css"
-# web_include_js = "/assets/xstate_workflow/js/xstate_workflow.js"
+# Website route rules
+website_route_rules = [
+    {"from_route": "/workflow-builder", "to_route": "workflow-builder"},
+    {"from_route": "/workflow-builder/<machine_id>", "to_route": "workflow-builder"},
+]
 
-# include custom scss in every website theme (without file extension ".scss")
-# website_theme_scss = "xstate_workflow/public/scss/website"
+# ============================================================================
+# DOCTYPES
+# ============================================================================
 
-# include js, css files in header of web form
-# webform_include_js = {"doctype": "public/js/doctype.js"}
-# webform_include_css = {"doctype": "public/css/doctype.css"}
+# Fixtures for export
+fixtures = [
+    {
+        "doctype": "Role",
+        "filters": [["name", "in", ["Workflow Manager"]]]
+    }
+]
 
-# include js in page
-# page_js = {"page" : "public/js/file.js"}
-
-# include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
-# doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
-# doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
-
-# Svg Icons
-# ------------------
-# include app icons in desk
-# app_include_icons = "xstate_workflow/public/icons.svg"
-
-# Home Pages
-# ----------
-
-# application home page (will override Website Settings)
-# home_page = "login"
-
-# website user home page (by Role)
-# role_home_page = {
-# 	"Role": "home_page"
-# }
-
-# Generators
-# ----------
-
-# automatically create page for each record of this doctype
-# website_generators = ["Web Page"]
-
-# Jinja
-# ----------
-
-# add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "xstate_workflow.utils.jinja_methods",
-# 	"filters": "xstate_workflow.utils.jinja_filters"
-# }
-
-# Installation
-# ------------
-
-# before_install = "xstate_workflow.install.before_install"
-# after_install = "xstate_workflow.install.after_install"
-
-# Uninstallation
-# ------------
-
-# before_uninstall = "xstate_workflow.uninstall.before_uninstall"
-# after_uninstall = "xstate_workflow.uninstall.after_uninstall"
-
-# Integration Setup
-# ------------------
-# To set up dependencies/integrations with other apps
-# Name of the app being installed is passed as an argument
-
-# before_app_install = "xstate_workflow.utils.before_app_install"
-# after_app_install = "xstate_workflow.utils.after_app_install"
-
-# Integration Cleanup
-# -------------------
-# To clean up dependencies/integrations with other apps
-# Name of the app being uninstalled is passed as an argument
-
-# before_app_uninstall = "xstate_workflow.utils.before_app_uninstall"
-# after_app_uninstall = "xstate_workflow.utils.after_app_uninstall"
-
-# Desk Notifications
-# ------------------
-# See frappe.core.notifications.get_notification_config
-
-# notification_config = "xstate_workflow.notifications.get_notification_config"
-
-# Permissions
-# -----------
-# Permissions evaluated in scripted ways
-
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
-
-# DocType Class
-# ---------------
-# Override standard doctype classes
-
+# DocType overrides
 # override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
+#     "Contact": "xstate_workflow.overrides.contact.CustomContact"
 # }
 
-# Document Events
-# ---------------
-# Hook on document methods and events
+# ============================================================================
+# DOCUMENT EVENTS
+# ============================================================================
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+# Auto-trigger workflow events on document changes
+doc_events = {
+    "*": {
+        "on_update": "xstate_workflow.workflow_engine.check_and_trigger",
+        "after_insert": "xstate_workflow.workflow_engine.check_and_trigger"
+    }
+}
 
-# Scheduled Tasks
-# ---------------
+# ============================================================================
+# SCHEDULER EVENTS
+# ============================================================================
 
-# scheduler_events = {
-# 	"all": [
-# 		"xstate_workflow.tasks.all"
-# 	],
-# 	"daily": [
-# 		"xstate_workflow.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"xstate_workflow.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"xstate_workflow.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"xstate_workflow.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+    # Process delayed transitions every minute
+    "cron": {
+        "* * * * *": [
+            "xstate_workflow.workflow_engine.process_delayed_transitions"
+        ]
+    },
+    # Daily cleanup of old instances
+    "daily": [
+        "xstate_workflow.workflow_engine.cleanup_old_snapshots"
+    ]
+}
 
-# Testing
-# -------
+# ============================================================================
+# JINJA
+# ============================================================================
 
-# before_tests = "xstate_workflow.install.before_tests"
+# Custom Jinja methods for templates
+jinja = {
+    "methods": [
+        "xstate_workflow.utils.jinja.get_workflow_state",
+        "xstate_workflow.utils.jinja.get_workflow_buttons"
+    ]
+}
 
-# Overriding Methods
-# ------------------------------
-#
+# ============================================================================
+# PERMISSIONS
+# ============================================================================
+
+# Permission query conditions
+permission_query_conditions = {
+    "Machine Instance": "xstate_workflow.permissions.get_permission_query_conditions"
+}
+
+has_permission = {
+    "Machine Instance": "xstate_workflow.permissions.has_permission"
+}
+
+# ============================================================================
+# INSTALLATION
+# ============================================================================
+
+before_install = "xstate_workflow.install.before_install"
+after_install = "xstate_workflow.install.after_install"
+
+# ============================================================================
+# BOOT SESSION
+# ============================================================================
+
+# Add workflow state info to boot
+boot_session = "xstate_workflow.boot.boot_session"
+
+# ============================================================================
+# OVERRIDE WHITELISTED METHODS
+# ============================================================================
+
+# Override for custom workflow integration
 # override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "xstate_workflow.event.get_events"
-# }
-#
-# each overriding function accepts a `data` argument;
-# generated from the base implementation of the doctype dashboard,
-# along with any modifications made in other Frappe apps
-# override_doctype_dashboards = {
-# 	"Task": "xstate_workflow.task.get_dashboard_data"
+#     "frappe.client.save": "xstate_workflow.overrides.save_with_workflow"
 # }
 
-# exempt linked doctypes from being automatically cancelled
-#
-# auto_cancel_exempted_doctypes = ["Auto Repeat"]
+# ============================================================================
+# API ENDPOINTS
+# ============================================================================
 
-# Ignore links to specified DocTypes when deleting documents
-# -----------------------------------------------------------
-
-# ignore_links_on_delete = ["Communication", "ToDo"]
-
-# Request Events
-# ----------------
-# before_request = ["xstate_workflow.utils.before_request"]
-# after_request = ["xstate_workflow.utils.after_request"]
-
-# Job Events
-# ----------
-# before_job = ["xstate_workflow.utils.before_job"]
-# after_job = ["xstate_workflow.utils.after_job"]
-
-# User Data Protection
-# --------------------
-
-# user_data_fields = [
-# 	{
-# 		"doctype": "{doctype_1}",
-# 		"filter_by": "{filter_by}",
-# 		"redact_fields": ["{field_1}", "{field_2}"],
-# 		"partial": 1,
-# 	},
-# 	{
-# 		"doctype": "{doctype_2}",
-# 		"filter_by": "{filter_by}",
-# 		"partial": 1,
-# 	},
-# 	{
-# 		"doctype": "{doctype_3}",
-# 		"strict": False,
-# 	},
-# 	{
-# 		"doctype": "{doctype_4}"
-# 	}
-# ]
-
-# Authentication and authorization
-# --------------------------------
-
-# auth_hooks = [
-# 	"xstate_workflow.auth.validate"
-# ]
-
-# Automatically update python controller files with type annotations for this app.
-# export_python_type_annotations = True
-
-# default_log_clearing_doctypes = {
-# 	"Logging DocType Name": 30  # days to retain logs
+# Define API namespace
+# api = {
+#     "v1": {
+#         "workflow": "xstate_workflow.api.v1.workflow"
+#     }
 # }
-
-# Translation
-# ------------
-# List of apps whose translatable strings should be excluded from this app's translations.
-# ignore_translatable_strings_from = []
-
