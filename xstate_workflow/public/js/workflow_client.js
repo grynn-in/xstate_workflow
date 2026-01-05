@@ -90,20 +90,82 @@
       frm.workflow_section_added = true;
       frm.workflow_state = state;
 
-      // Add workflow section HTML
-      var $section = $(render_workflow_section(state));
-      frm.fields_dict.workflow_state && frm.fields_dict.workflow_state.$wrapper
-        ? frm.fields_dict.workflow_state.$wrapper.html($section)
-        : frm.dashboard.add_section($section, __('Workflow'));
-
-      // Bind action buttons
-      $section.find('.workflow-action-btn').on('click', function () {
-        var event = $(this).data('event');
-        handle_workflow_action(frm, event);
-      });
+      // Try to use React components if available
+      if (window.XStateWorkflowWidget) {
+        add_react_workflow_section(frm, state);
+      } else {
+        add_fallback_workflow_section(frm, state);
+      }
 
       // Update page indicator
       update_page_indicator(frm, state);
+    });
+  }
+
+  /**
+   * Add React-based workflow section
+   */
+  function add_react_workflow_section(frm, state) {
+    // Create containers for React components
+    var $section = $('<div class="xsw-react-workflow-section"></div>');
+
+    // State indicator container
+    var $stateContainer = $('<div id="xsw-state-indicator-' + frm.doc.name.replace(/\s/g, '_') + '" class="xsw-state-indicator-wrapper" style="margin-bottom: 10px;"></div>');
+    $section.append($stateContainer);
+
+    // Action buttons container
+    var $actionsContainer = $('<div id="xsw-action-buttons-' + frm.doc.name.replace(/\s/g, '_') + '" class="xsw-action-buttons-wrapper"></div>');
+    $section.append($actionsContainer);
+
+    // Add to dashboard
+    frm.dashboard.add_section($section, __('Workflow'));
+
+    // Mount React components
+    setTimeout(function() {
+      var containerId = 'xsw-state-indicator-' + frm.doc.name.replace(/\s/g, '_');
+      window.XStateWorkflowWidget.mountStateIndicator(containerId, {
+        doctype: frm.doc.doctype,
+        docname: frm.doc.name,
+        onStateChange: function(newState) {
+          frm.reload_doc();
+        }
+      });
+
+      var buttonsId = 'xsw-action-buttons-' + frm.doc.name.replace(/\s/g, '_');
+      window.XStateWorkflowWidget.mountActionButtons(buttonsId, {
+        doctype: frm.doc.doctype,
+        docname: frm.doc.name,
+        onTransition: function(event, result) {
+          frm.reload_doc();
+        }
+      });
+    }, 100);
+
+    // Store cleanup function
+    frm.xsw_cleanup = function() {
+      var containerId = 'xsw-state-indicator-' + frm.doc.name.replace(/\s/g, '_');
+      var buttonsId = 'xsw-action-buttons-' + frm.doc.name.replace(/\s/g, '_');
+      if (window.XStateWorkflowWidget) {
+        window.XStateWorkflowWidget.unmountWidget(containerId);
+        window.XStateWorkflowWidget.unmountWidget(buttonsId);
+      }
+    };
+  }
+
+  /**
+   * Add fallback (non-React) workflow section
+   */
+  function add_fallback_workflow_section(frm, state) {
+    // Add workflow section HTML
+    var $section = $(render_workflow_section(state));
+    frm.fields_dict.workflow_state && frm.fields_dict.workflow_state.$wrapper
+      ? frm.fields_dict.workflow_state.$wrapper.html($section)
+      : frm.dashboard.add_section($section, __('Workflow'));
+
+    // Bind action buttons
+    $section.find('.workflow-action-btn').on('click', function () {
+      var event = $(this).data('event');
+      handle_workflow_action(frm, event);
     });
   }
 

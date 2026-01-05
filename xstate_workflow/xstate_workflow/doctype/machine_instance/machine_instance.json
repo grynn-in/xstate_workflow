@@ -17,6 +17,13 @@
   "state_section",
   "context",
   "snapshot",
+  "parallel_states_section",
+  "parallel_states",
+  "column_break_parallel",
+  "history_states",
+  "active_services_section",
+  "active_services",
+  "delayed_transitions",
   "history_section",
   "last_event",
   "last_transition_at",
@@ -66,7 +73,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "idle\nactive\nfinal\nerror"
+   "options": "idle\nactive\nfinal\nerror\narchived"
   },
   {
    "fieldname": "current_state",
@@ -90,6 +97,48 @@
    "fieldname": "snapshot",
    "fieldtype": "Code",
    "label": "XState Snapshot",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "parallel_states_section",
+   "fieldtype": "Section Break",
+   "label": "Parallel & History States"
+  },
+  {
+   "description": "Current state of each parallel region (JSON object)",
+   "fieldname": "parallel_states",
+   "fieldtype": "Code",
+   "label": "Parallel States",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "column_break_parallel",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "History state tracking for shallow/deep history (JSON object)",
+   "fieldname": "history_states",
+   "fieldtype": "Code",
+   "label": "History States",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "active_services_section",
+   "fieldtype": "Section Break",
+   "label": "Services & Delays"
+  },
+  {
+   "description": "Currently running invoke services (JSON array)",
+   "fieldname": "active_services",
+   "fieldtype": "Code",
+   "label": "Active Services",
+   "options": "JSON"
+  },
+  {
+   "description": "Pending delayed transitions with timestamps (JSON array)",
+   "fieldname": "delayed_transitions",
+   "fieldtype": "Code",
+   "label": "Delayed Transitions",
    "options": "JSON"
   },
   {

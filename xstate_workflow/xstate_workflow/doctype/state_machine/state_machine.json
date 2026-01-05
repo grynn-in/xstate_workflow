@@ -15,9 +15,10 @@
   "is_active",
   "version",
   "attached_doctype",
+  "xstate_version",
   "configuration_section",
   "json_config",
-  "react_flow_config",
+  "workflow_builder_config",
   "logic_section",
   "logic_module",
   "guards_table",
@@ -79,6 +80,13 @@
    "options": "DocType"
   },
   {
+   "default": "v5",
+   "fieldname": "xstate_version",
+   "fieldtype": "Select",
+   "label": "XState Version",
+   "options": "v5"
+  },
+  {
    "fieldname": "configuration_section",
    "fieldtype": "Section Break",
    "label": "XState Configuration"
@@ -91,9 +99,9 @@
    "reqd": 1
   },
   {
-   "fieldname": "react_flow_config",
+   "fieldname": "workflow_builder_config",
    "fieldtype": "Code",
-   "label": "React Flow Config",
+   "label": "Workflow Builder Config",
    "options": "JSON"
   },
   {

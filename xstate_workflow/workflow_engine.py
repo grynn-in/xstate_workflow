@@ -122,7 +122,7 @@ def get_machine_state(doctype: str, docname: str) -> dict:
 
 @frappe.whitelist()
 def save_machine(machine_id: str, json_config: str, title: str = "",
-                 react_flow_config: str = None, attached_doctype: str = None) -> dict:
+                 workflow_builder_config: str = None, attached_doctype: str = None) -> dict:
     """
     Save or update a state machine configuration.
 
@@ -130,7 +130,7 @@ def save_machine(machine_id: str, json_config: str, title: str = "",
         machine_id: Unique identifier for the machine
         json_config: XState JSON configuration
         title: Human-readable title
-        react_flow_config: React Flow nodes/edges JSON
+        workflow_builder_config: Visual workflow builder configuration JSON
         attached_doctype: DocType to attach this workflow to
 
     Returns:
@@ -141,8 +141,8 @@ def save_machine(machine_id: str, json_config: str, title: str = "",
     if existing:
         machine = frappe.get_doc("State Machine", machine_id)
         machine.json_config = json_config
-        if react_flow_config:
-            machine.react_flow_config = react_flow_config
+        if workflow_builder_config:
+            machine.workflow_builder_config = workflow_builder_config
         if title:
             machine.title = title
         if attached_doctype:
@@ -154,7 +154,7 @@ def save_machine(machine_id: str, json_config: str, title: str = "",
             "machine_id": machine_id,
             "title": title or machine_id,
             "json_config": json_config,
-            "react_flow_config": react_flow_config,
+            "workflow_builder_config": workflow_builder_config,
             "attached_doctype": attached_doctype,
             "is_active": 1
         }).insert()
@@ -191,7 +191,7 @@ def get_machine(machine_id: str) -> dict:
         "is_active": machine.is_active,
         "attached_doctype": machine.attached_doctype,
         "json_config": machine.json_config,
-        "react_flow_config": machine.react_flow_config,
+        "workflow_builder_config": machine.workflow_builder_config,
         "logic_module": machine.logic_module,
         "guards": [{"name": g.guard_name, "code": g.python_code}
                    for g in machine.guards_table],
@@ -314,6 +314,538 @@ def reset_instance(doctype: str, docname: str) -> dict:
 
 
 # ============================================================================
+# PARALLEL STATE EXECUTION
+# ============================================================================
+
+def execute_parallel_states(instance, parallel_config: dict, context: dict,
+                            event: dict, actions: dict, ref_doc) -> dict:
+    """
+    Execute all parallel regions concurrently and merge contexts.
+
+    In XState, parallel states have multiple child regions that are all active
+    simultaneously. This function executes entry actions for all regions and
+    tracks their individual states.
+
+    Args:
+        instance: Machine Instance document
+        parallel_config: The parallel state configuration with 'states' containing regions
+        context: Current context
+        event: Event that triggered this
+        actions: Dict of action functions
+        ref_doc: Reference document
+
+    Returns:
+        Updated context after executing all region entries
+    """
+    regions = parallel_config.get("states", {})
+    parallel_states = {}
+
+    # Get the parent state path
+    parent_path = instance.current_state
+
+    for region_name, region_config in regions.items():
+        region_path = f"{parent_path}.{region_name}"
+
+        # Find initial state for this region
+        initial_state = region_config.get("initial")
+        if not initial_state and region_config.get("states"):
+            initial_state = list(region_config["states"].keys())[0]
+
+        if initial_state:
+            # Set the initial state for this region
+            parallel_states[region_path] = initial_state
+
+            # Execute entry actions for the initial state
+            initial_config = region_config.get("states", {}).get(initial_state, {})
+            if initial_config.get("entry"):
+                context = execute_actions(initial_config["entry"], actions, context, event)
+
+            # Schedule any delayed transitions for this region
+            schedule_delayed_transitions(
+                instance, initial_config,
+                f"{region_path}.{initial_state}", context
+            )
+
+    # Update instance with parallel states
+    instance.set_parallel_states(parallel_states)
+
+    return context
+
+
+def execute_parallel_transition(instance, event: str, input_data: dict,
+                                 actions: dict, guards: dict, ref_doc) -> tuple[bool, dict]:
+    """
+    Execute a transition within a parallel state.
+
+    When in a parallel state, events may affect one or more regions.
+    This function checks each region for valid transitions.
+
+    Args:
+        instance: Machine Instance document
+        event: Event name
+        input_data: Event payload
+        actions: Dict of action functions
+        guards: Dict of guard functions
+        ref_doc: Reference document
+
+    Returns:
+        Tuple of (transition_occurred, updated_context)
+    """
+    machine_doc = frappe.get_doc("State Machine", instance.machine)
+    config = json.loads(machine_doc.json_config)
+    context = json.loads(instance.context or "{}")
+    parallel_states = instance.get_parallel_states()
+
+    transition_occurred = False
+    parent_path = instance.current_state
+
+    # Get the parent parallel state config
+    parent_config = find_state_config(config, parent_path)
+    if not parent_config or parent_config.get("type") != "parallel":
+        return False, context
+
+    regions = parent_config.get("states", {})
+
+    for region_name, region_config in regions.items():
+        region_path = f"{parent_path}.{region_name}"
+        current_region_state = parallel_states.get(region_path)
+
+        if not current_region_state:
+            continue
+
+        # Find the current state config within this region
+        state_config = region_config.get("states", {}).get(current_region_state, {})
+        transition = state_config.get("on", {}).get(event)
+
+        if not transition:
+            continue
+
+        # Resolve the transition
+        target_state, transition_actions = resolve_transition(
+            transition, context, input_data, guards
+        )
+
+        if target_state:
+            transition_occurred = True
+
+            # Execute exit actions
+            if state_config.get("exit"):
+                context = execute_actions(state_config["exit"], actions, context, input_data)
+
+            # Execute transition actions
+            if transition_actions:
+                context = execute_actions(transition_actions, actions, context, input_data)
+
+            # Update region state
+            parallel_states[region_path] = target_state
+
+            # Execute entry actions for new state
+            new_state_config = region_config.get("states", {}).get(target_state, {})
+            if new_state_config.get("entry"):
+                context = execute_actions(new_state_config["entry"], actions, context, input_data)
+
+            # Schedule delayed transitions
+            schedule_delayed_transitions(
+                instance, new_state_config,
+                f"{region_path}.{target_state}", context
+            )
+
+    instance.set_parallel_states(parallel_states)
+    return transition_occurred, context
+
+
+def check_parallel_completion(instance, parallel_config: dict) -> bool:
+    """
+    Check if all parallel regions have reached final states.
+
+    In XState, a parallel state completes when all regions are in final states.
+
+    Args:
+        instance: Machine Instance document
+        parallel_config: The parallel state configuration
+
+    Returns:
+        True if all regions are complete
+    """
+    parallel_states = instance.get_parallel_states()
+    parent_path = instance.current_state
+    regions = parallel_config.get("states", {})
+
+    for region_name, region_config in regions.items():
+        region_path = f"{parent_path}.{region_name}"
+        current_state = parallel_states.get(region_path)
+
+        if not current_state:
+            return False
+
+        state_config = region_config.get("states", {}).get(current_state, {})
+        if state_config.get("type") != "final":
+            return False
+
+    return True
+
+
+# ============================================================================
+# HISTORY STATE HANDLING
+# ============================================================================
+
+def handle_history_state(instance, history_config: dict, parent_path: str,
+                         context: dict, actions: dict, event: dict) -> tuple[str, dict]:
+    """
+    Resolve a history state to the actual target state.
+
+    XState history states remember the last active child state. When transitioning
+    to a history state, we restore the previous state (or use the default).
+
+    Args:
+        instance: Machine Instance document
+        history_config: The history state configuration
+        parent_path: Path to the parent compound state
+        context: Current context
+        actions: Dict of action functions
+        event: Event data
+
+    Returns:
+        Tuple of (resolved_target_state, updated_context)
+    """
+    # Determine if this is deep or shallow history
+    history_type = history_config.get("history", "shallow")
+    is_deep = history_type == "deep"
+
+    # Get the recorded history
+    recorded_state = instance.get_history(parent_path, deep=is_deep)
+
+    if recorded_state:
+        target = recorded_state
+    else:
+        # Use default target if no history recorded
+        target = history_config.get("target")
+
+    if not target:
+        # If no target and no history, use parent's initial state
+        machine_doc = frappe.get_doc("State Machine", instance.machine)
+        config = json.loads(machine_doc.json_config)
+        parent_config = find_state_config(config, parent_path)
+        if parent_config:
+            target = parent_config.get("initial")
+
+    return target, context
+
+
+def record_state_history(instance, from_state: str, to_state: str, config: dict):
+    """
+    Record history when leaving a compound state.
+
+    Called during transitions to track which child state was active.
+
+    Args:
+        instance: Machine Instance document
+        from_state: State being left
+        to_state: State being entered
+        config: Full machine config
+    """
+    # Check if from_state is a child of a compound state
+    if "." in from_state:
+        parts = from_state.rsplit(".", 1)
+        parent_path = parts[0]
+        child_state = parts[1]
+
+        # Record shallow history (just the immediate child)
+        instance.record_history(parent_path, child_state, deep=False)
+
+        # Record deep history (full nested path relative to parent)
+        parallel_states = instance.get_parallel_states()
+        if parallel_states:
+            # Include parallel state info for deep history
+            deep_state = {
+                "state": child_state,
+                "parallel": {k: v for k, v in parallel_states.items()
+                            if k.startswith(from_state)}
+            }
+            instance.record_history(parent_path, json.dumps(deep_state), deep=True)
+        else:
+            instance.record_history(parent_path, from_state, deep=True)
+
+
+# ============================================================================
+# INVOKE SERVICE EXECUTION
+# ============================================================================
+
+def invoke_service(instance, invoke_config: dict | list, context: dict,
+                   event: dict, ref_doc) -> dict:
+    """
+    Execute invoke services (Python functions, HTTP calls, background jobs).
+
+    XState invoke allows spawning services that can send events back to the machine.
+    Supports onDone and onError callbacks.
+
+    Args:
+        instance: Machine Instance document
+        invoke_config: Invoke configuration (can be a list of invokes)
+        context: Current context
+        event: Event that triggered the invoke
+        ref_doc: Reference document
+
+    Returns:
+        Updated context
+    """
+    if isinstance(invoke_config, dict):
+        invoke_config = [invoke_config]
+
+    for invoke in invoke_config:
+        service_id = invoke.get("id", f"service_{frappe.generate_hash()[:8]}")
+        src = invoke.get("src")
+
+        if not src:
+            continue
+
+        # Track the service
+        instance.add_active_service(service_id, {
+            "src": src,
+            "onDone": invoke.get("onDone"),
+            "onError": invoke.get("onError"),
+            "input": invoke.get("input")
+        })
+
+        # Execute based on service type
+        try:
+            if src.startswith("http://") or src.startswith("https://"):
+                # HTTP service - execute in background
+                enqueue(
+                    _execute_http_service,
+                    queue="default",
+                    timeout=300,
+                    instance_name=instance.name,
+                    service_id=service_id,
+                    url=src,
+                    method=invoke.get("method", "POST"),
+                    headers=invoke.get("headers", {}),
+                    body=invoke.get("input") or context
+                )
+            else:
+                # Python function service
+                service_doc = frappe.db.get_value(
+                    "XSM Service",
+                    {"service_name": src},
+                    ["python_path", "is_async"],
+                    as_dict=True
+                )
+
+                if service_doc:
+                    if service_doc.is_async:
+                        enqueue(
+                            _execute_python_service,
+                            queue="default",
+                            timeout=300,
+                            instance_name=instance.name,
+                            service_id=service_id,
+                            python_path=service_doc.python_path,
+                            context=context,
+                            event=event,
+                            ref_doctype=ref_doc.doctype,
+                            ref_name=ref_doc.name
+                        )
+                    else:
+                        result = _execute_python_service_sync(
+                            service_doc.python_path, context, event, ref_doc
+                        )
+                        _handle_service_completion(
+                            instance.name, service_id, result, success=True
+                        )
+
+        except Exception as e:
+            frappe.log_error(f"Invoke service error: {e}", "XState Invoke Error")
+            _handle_service_completion(
+                instance.name, service_id, {"error": str(e)}, success=False
+            )
+
+    return context
+
+
+def _execute_http_service(instance_name: str, service_id: str, url: str,
+                          method: str, headers: dict, body: dict):
+    """Background job to execute HTTP service"""
+    import requests
+
+    try:
+        response = requests.request(
+            method=method,
+            url=url,
+            headers=headers,
+            json=body,
+            timeout=60
+        )
+        response.raise_for_status()
+        result = response.json() if response.text else {}
+        _handle_service_completion(instance_name, service_id, result, success=True)
+    except Exception as e:
+        _handle_service_completion(instance_name, service_id, {"error": str(e)}, success=False)
+
+
+def _execute_python_service(instance_name: str, service_id: str, python_path: str,
+                            context: dict, event: dict, ref_doctype: str, ref_name: str):
+    """Background job to execute Python service"""
+    try:
+        ref_doc = frappe.get_doc(ref_doctype, ref_name)
+        result = _execute_python_service_sync(python_path, context, event, ref_doc)
+        _handle_service_completion(instance_name, service_id, result, success=True)
+    except Exception as e:
+        _handle_service_completion(instance_name, service_id, {"error": str(e)}, success=False)
+
+
+def _execute_python_service_sync(python_path: str, context: dict,
+                                  event: dict, ref_doc) -> dict:
+    """Execute a Python service synchronously"""
+    module_path, func_name = python_path.rsplit(".", 1)
+    module = __import__(module_path, fromlist=[func_name])
+    func = getattr(module, func_name)
+    return func(context=context, event=event, doc=ref_doc) or {}
+
+
+def _handle_service_completion(instance_name: str, service_id: str,
+                                result: dict, success: bool):
+    """Handle service completion - trigger onDone or onError"""
+    instance = frappe.get_doc("Machine Instance", instance_name)
+    services = instance.get_active_services()
+    service_config = next((s for s in services if s.get("id") == service_id), None)
+
+    if not service_config:
+        return
+
+    # Remove from active services
+    instance.remove_active_service(service_id)
+    instance.save(ignore_permissions=True)
+
+    # Get callback config
+    config = service_config.get("config", {})
+    callback = config.get("onDone") if success else config.get("onError")
+
+    if callback:
+        # Trigger callback event
+        event_type = callback if isinstance(callback, str) else callback.get("target")
+        if event_type:
+            from xstate_workflow.workflow_engine import trigger_event_sync
+            trigger_event_sync(
+                instance.reference_doctype,
+                instance.reference_name,
+                f"xstate.done.invoke.{service_id}" if success else f"xstate.error.invoke.{service_id}",
+                {"output": result}
+            )
+
+    frappe.db.commit()
+
+
+# ============================================================================
+# DELAYED TRANSITION SCHEDULING
+# ============================================================================
+
+def schedule_delayed_transitions(instance, state_config: dict,
+                                  state_path: str, context: dict):
+    """
+    Schedule delayed transitions defined in state's "after" property.
+
+    XState "after" defines delayed transitions that fire after a timeout.
+
+    Args:
+        instance: Machine Instance document
+        state_config: State configuration with "after" property
+        state_path: Full path to the state
+        context: Current context
+    """
+    after_config = state_config.get("after")
+    if not after_config:
+        return
+
+    now = frappe.utils.now_datetime()
+
+    for delay_spec, transition in after_config.items():
+        # Parse delay (can be number or string with unit)
+        delay_ms = parse_delay(delay_spec, context)
+
+        if delay_ms <= 0:
+            continue
+
+        # Calculate fire time
+        fire_at = now + frappe.utils.datetime.timedelta(milliseconds=delay_ms)
+
+        # Get target from transition
+        target = transition if isinstance(transition, str) else transition.get("target")
+
+        if target:
+            delay_key = f"{state_path}:{delay_spec}"
+            instance.add_delayed_transition(
+                delay_key=delay_key,
+                target_state=target,
+                fire_at=fire_at,
+                event_data={
+                    "delay": delay_ms,
+                    "transition": transition if isinstance(transition, dict) else {"target": transition}
+                }
+            )
+
+
+def parse_delay(delay_spec: str | int, context: dict) -> int:
+    """
+    Parse a delay specification to milliseconds.
+
+    Supports:
+    - Integer (milliseconds): 5000
+    - String with units: "5s", "2m", "1h", "1d"
+    - Context reference: "delays.approval" (looks up in context)
+
+    Args:
+        delay_spec: Delay specification
+        context: Context for variable resolution
+
+    Returns:
+        Delay in milliseconds
+    """
+    if isinstance(delay_spec, int):
+        return delay_spec
+
+    delay_str = str(delay_spec)
+
+    # Check if it's a context reference
+    if delay_str.startswith("delays."):
+        key = delay_str[7:]  # Remove "delays." prefix
+        delays = context.get("delays", {})
+        return delays.get(key, 0)
+
+    # Parse string with units
+    import re
+    match = re.match(r"^(\d+)(ms|s|m|h|d)?$", delay_str)
+    if match:
+        value = int(match.group(1))
+        unit = match.group(2) or "ms"
+
+        multipliers = {
+            "ms": 1,
+            "s": 1000,
+            "m": 60000,
+            "h": 3600000,
+            "d": 86400000
+        }
+        return value * multipliers.get(unit, 1)
+
+    # Try parsing as plain integer
+    try:
+        return int(delay_spec)
+    except (ValueError, TypeError):
+        return 0
+
+
+def cancel_state_delayed_transitions(instance, state_path: str):
+    """
+    Cancel all delayed transitions for a state when leaving it.
+
+    Args:
+        instance: Machine Instance document
+        state_path: Path to the state being exited
+    """
+    instance.clear_delayed_transitions(state_path)
+
+
+# ============================================================================
 # CORE ENGINE FUNCTIONS
 # ============================================================================
 
@@ -387,6 +919,13 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
     """
     Core transition execution with XState interpreter.
 
+    Handles:
+    - Simple atomic state transitions
+    - Parallel state transitions (within regions)
+    - History state resolution
+    - Invoke service execution
+    - Delayed transition scheduling
+
     Args:
         instance_name: Machine Instance name
         event: Event to send
@@ -415,7 +954,7 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
         guards = build_guards(machine_doc, ref_doc)
         actions = build_actions(machine_doc, ref_doc, instance)
 
-        # Find the target state for this event
+        # Find the current state config
         state_config = find_state_config(config, current_state)
 
         if not state_config:
@@ -424,7 +963,48 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
                 "error": _("State '{0}' not found in machine config").format(current_state)
             }
 
+        # Check if current state is a parallel state
+        if state_config.get("type") == "parallel":
+            # Try to execute transition within parallel regions
+            transition_occurred, context = execute_parallel_transition(
+                instance, event, input_data, actions, guards, ref_doc
+            )
+
+            if transition_occurred:
+                instance.context = json.dumps(context)
+                instance.last_event = event
+                instance.last_transition_at = frappe.utils.now()
+
+                # Check if all regions are complete
+                if check_parallel_completion(instance, state_config):
+                    # Handle onDone for parallel state
+                    if state_config.get("onDone"):
+                        on_done = state_config["onDone"]
+                        done_target = on_done if isinstance(on_done, str) else on_done.get("target")
+                        if done_target:
+                            # Transition out of parallel state
+                            return execute_transition(instance_name, "xstate.done.state", input_data)
+
+                instance.save(ignore_permissions=True)
+                frappe.db.commit()
+
+                return {
+                    "success": True,
+                    "previous_state": current_state,
+                    "new_state": current_state,
+                    "context": context,
+                    "is_final": False,
+                    "parallel_transition": True
+                }
+
+        # Regular transition handling
         transition = state_config.get("on", {}).get(event)
+
+        # Check for "always" transitions if no event-based transition
+        if not transition and event == "xstate.always":
+            always_transitions = state_config.get("always", [])
+            if always_transitions:
+                transition = always_transitions
 
         if not transition:
             return {
@@ -443,25 +1023,65 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
                 "error": _("Transition blocked by guard")
             }
 
+        # Check if target is a history state
+        target_state_config = find_state_config(config, target_state)
+        if target_state_config and target_state_config.get("type") == "history":
+            # Resolve history to actual target
+            parent_path = target_state.rsplit(".", 1)[0] if "." in target_state else ""
+            target_state, context = handle_history_state(
+                instance, target_state_config, parent_path, context, actions, input_data
+            )
+            target_state_config = find_state_config(config, target_state)
+
+        # Record history before leaving current state
+        record_state_history(instance, current_state, target_state, config)
+
+        # Cancel any delayed transitions from current state
+        cancel_state_delayed_transitions(instance, current_state)
+
+        # Clear active services when leaving state
+        instance.clear_active_services()
+
         # Execute exit actions for current state
         if state_config.get("exit"):
-            execute_actions(state_config["exit"], actions, context, input_data)
+            context = execute_actions(state_config["exit"], actions, context, input_data)
 
         # Execute transition actions
         if transition_actions:
             context = execute_actions(transition_actions, actions, context, input_data)
 
-        # Find target state config and execute entry actions
-        target_state_config = find_state_config(config, target_state)
+        # Execute entry actions for target state
         if target_state_config and target_state_config.get("entry"):
             context = execute_actions(target_state_config["entry"], actions, context, input_data)
+
+        # Check if target is a parallel state - initialize regions
+        if target_state_config and target_state_config.get("type") == "parallel":
+            old_state = instance.current_state
+            instance.current_state = target_state
+            context = execute_parallel_states(
+                instance, target_state_config, context, input_data, actions, ref_doc
+            )
+        else:
+            old_state = instance.current_state
+            instance.current_state = target_state
+
+            # Clear parallel states when entering non-parallel state
+            instance.clear_parallel_states()
+
+        # Schedule delayed transitions for new state
+        if target_state_config:
+            schedule_delayed_transitions(instance, target_state_config, target_state, context)
+
+        # Execute invoke services
+        if target_state_config and target_state_config.get("invoke"):
+            context = invoke_service(
+                instance, target_state_config["invoke"], context, input_data, ref_doc
+            )
 
         # Check if final state
         is_final = target_state_config and target_state_config.get("type") == "final"
 
         # Update instance
-        old_state = instance.current_state
-        instance.current_state = target_state
         instance.context = json.dumps(context)
         instance.last_event = event
         instance.last_transition_at = frappe.utils.now()
@@ -474,6 +1094,12 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
 
         # Post-transition hooks
         post_transition_actions(instance, event, old_state, target_state, ref_doc)
+
+        # Check for "always" transitions (eventless auto-transitions)
+        if target_state_config and target_state_config.get("always"):
+            frappe.db.commit()
+            # Execute always transition after saving
+            return execute_transition(instance_name, "xstate.always", input_data)
 
         frappe.db.commit()
 
@@ -587,6 +1213,11 @@ def build_guards(machine_doc, ref_doc) -> dict:
     """
     Build guard functions from machine definition.
 
+    Supports three types of guards:
+    1. Logic module guards (Python functions)
+    2. Guards table (inline Python code)
+    3. Visual guards from workflow_builder_config (no code required!)
+
     Args:
         machine_doc: State Machine document
         ref_doc: Reference document
@@ -610,11 +1241,299 @@ def build_guards(machine_doc, ref_doc) -> dict:
         if guard.python_code:
             guards[guard.guard_name] = create_guard_function(guard.python_code, ref_doc)
 
+    # Load visual guards from workflow_builder_config (NO CODE REQUIRED!)
+    if machine_doc.workflow_builder_config:
+        try:
+            builder_config = json.loads(machine_doc.workflow_builder_config)
+            visual_guards = extract_visual_guards(builder_config, ref_doc)
+            # Visual guards take precedence over code guards for same name
+            guards.update(visual_guards)
+        except (json.JSONDecodeError, Exception) as e:
+            frappe.log_error(f"Could not parse workflow_builder_config: {e}")
+
     # Add default guards
     guards["always"] = lambda ctx, evt: True
     guards["never"] = lambda ctx, evt: False
 
     return guards
+
+
+def extract_visual_guards(builder_config: dict, ref_doc) -> dict:
+    """
+    Extract guard functions from visual builder configuration.
+
+    This enables NO-CODE guard creation via the visual editor!
+    Supports:
+    - Simple guards: field operator value (e.g., grand_total > 100000)
+    - Compound guards: AND/OR combinations of simple guards
+    - Role guards: check if user has specific roles
+
+    Args:
+        builder_config: Visual builder configuration (nodes, edges, etc.)
+        ref_doc: Reference document
+
+    Returns:
+        Dict of guard_name -> function
+    """
+    guards = {}
+    edges = builder_config.get("edges", [])
+
+    for edge in edges:
+        edge_data = edge.get("data", {})
+        guard_config = edge_data.get("guard")
+
+        if not guard_config:
+            continue
+
+        guard_type = guard_config.get("type")
+        guard_name = guard_config.get("name")
+
+        if guard_type == "simple":
+            # Simple field comparison: field operator value
+            guards[guard_name or f"guard_{edge['id']}"] = create_simple_guard(guard_config, ref_doc)
+
+        elif guard_type == "compound":
+            # Compound guard: AND/OR of multiple conditions
+            guards[guard_name or f"guard_{edge['id']}"] = create_compound_guard(guard_config, ref_doc)
+
+        elif guard_type == "role":
+            # Role-based guard: check user roles
+            guards[guard_name or f"guard_{edge['id']}"] = create_role_guard(guard_config)
+
+        # Note: "python" type guards are handled by the logic module
+
+    return guards
+
+
+def create_simple_guard(guard_config: dict, ref_doc):
+    """
+    Create a guard function from a simple visual guard config.
+
+    Config format:
+    {
+        "type": "simple",
+        "field": "grand_total",
+        "operator": ">",
+        "value": 100000
+    }
+
+    Supported operators:
+    - Comparison: ==, !=, >, <, >=, <=
+    - String: contains, not_contains, starts_with, ends_with
+    - List: in, not_in
+    - Null: is_set, is_not_set
+
+    Args:
+        guard_config: Guard configuration from visual builder
+        ref_doc: Reference document
+
+    Returns:
+        Guard function
+    """
+    field = guard_config.get("field", "")
+    operator = guard_config.get("operator", "==")
+    value = guard_config.get("value")
+
+    def guard_fn(context: dict, event: dict) -> bool:
+        # Get field value from context or document
+        field_value = get_field_value(field, context, ref_doc)
+
+        try:
+            return evaluate_operator(field_value, operator, value)
+        except Exception as e:
+            frappe.log_error(f"Simple guard error: {field} {operator} {value}: {e}")
+            return False
+
+    return guard_fn
+
+
+def create_compound_guard(guard_config: dict, ref_doc):
+    """
+    Create a guard function from a compound visual guard config.
+
+    Config format:
+    {
+        "type": "compound",
+        "operator": "and",  // or "or"
+        "conditions": [
+            {"field": "grand_total", "operator": ">", "value": 100000},
+            {"field": "status", "operator": "==", "value": "Draft"}
+        ]
+    }
+
+    Args:
+        guard_config: Guard configuration from visual builder
+        ref_doc: Reference document
+
+    Returns:
+        Guard function
+    """
+    logic_operator = guard_config.get("operator", "and").lower()
+    conditions = guard_config.get("conditions", [])
+
+    # Create guard functions for each condition
+    condition_guards = []
+    for cond in conditions:
+        if cond.get("type") == "compound":
+            condition_guards.append(create_compound_guard(cond, ref_doc))
+        else:
+            condition_guards.append(create_simple_guard(cond, ref_doc))
+
+    def guard_fn(context: dict, event: dict) -> bool:
+        if logic_operator == "and":
+            return all(g(context, event) for g in condition_guards)
+        elif logic_operator == "or":
+            return any(g(context, event) for g in condition_guards)
+        else:
+            return False
+
+    return guard_fn
+
+
+def create_role_guard(guard_config: dict):
+    """
+    Create a role-based guard function.
+
+    Config format:
+    {
+        "type": "role",
+        "roles": ["Sales Manager", "System Manager"],
+        "require_all": false  // true = AND, false = OR
+    }
+
+    Args:
+        guard_config: Guard configuration from visual builder
+
+    Returns:
+        Guard function
+    """
+    required_roles = guard_config.get("roles", [])
+    require_all = guard_config.get("require_all", False)
+
+    def guard_fn(context: dict, event: dict) -> bool:
+        user = frappe.session.user
+        user_roles = set(frappe.get_roles(user))
+
+        if require_all:
+            return all(role in user_roles for role in required_roles)
+        else:
+            return any(role in user_roles for role in required_roles)
+
+    return guard_fn
+
+
+def get_field_value(field_path: str, context: dict, ref_doc):
+    """
+    Get a field value from context or document.
+
+    Supports:
+    - Simple fields: "grand_total"
+    - Nested fields: "customer.territory"
+    - Context fields: "context.workflow_status"
+
+    Args:
+        field_path: Field path (dot notation for nested)
+        context: Current context
+        ref_doc: Reference document
+
+    Returns:
+        Field value
+    """
+    parts = field_path.split(".")
+
+    # Try context first
+    if parts[0] == "context" or parts[0] in context:
+        value = context
+        start_idx = 1 if parts[0] == "context" else 0
+        for part in parts[start_idx:]:
+            if isinstance(value, dict):
+                value = value.get(part)
+            elif hasattr(value, part):
+                value = getattr(value, part)
+            else:
+                return None
+        return value
+
+    # Try document
+    if ref_doc:
+        value = ref_doc
+        for part in parts:
+            if hasattr(value, part):
+                value = getattr(value, part)
+            elif isinstance(value, dict):
+                value = value.get(part)
+            else:
+                return None
+        return value
+
+    # Try context directly
+    return context.get(field_path)
+
+
+def evaluate_operator(field_value, operator: str, compare_value) -> bool:
+    """
+    Evaluate a comparison operator.
+
+    Args:
+        field_value: Value from field
+        operator: Comparison operator
+        compare_value: Value to compare against
+
+    Returns:
+        Comparison result
+    """
+    # Handle None/null checks first
+    if operator == "is_set":
+        return field_value is not None and field_value != ""
+    if operator == "is_not_set":
+        return field_value is None or field_value == ""
+
+    # Type coercion for numeric comparisons
+    if operator in (">", "<", ">=", "<="):
+        try:
+            field_value = float(field_value) if field_value else 0
+            compare_value = float(compare_value) if compare_value else 0
+        except (ValueError, TypeError):
+            pass
+
+    # Comparison operators
+    if operator == "==" or operator == "equals":
+        return field_value == compare_value
+    if operator == "!=" or operator == "not_equals":
+        return field_value != compare_value
+    if operator == ">":
+        return field_value > compare_value
+    if operator == "<":
+        return field_value < compare_value
+    if operator == ">=":
+        return field_value >= compare_value
+    if operator == "<=":
+        return field_value <= compare_value
+
+    # String operators
+    str_field = str(field_value) if field_value else ""
+    str_compare = str(compare_value) if compare_value else ""
+
+    if operator == "contains":
+        return str_compare.lower() in str_field.lower()
+    if operator == "not_contains":
+        return str_compare.lower() not in str_field.lower()
+    if operator == "starts_with":
+        return str_field.lower().startswith(str_compare.lower())
+    if operator == "ends_with":
+        return str_field.lower().endswith(str_compare.lower())
+
+    # List operators
+    if operator == "in":
+        if isinstance(compare_value, list):
+            return field_value in compare_value
+        return str(field_value) in str(compare_value).split(",")
+    if operator == "not_in":
+        if isinstance(compare_value, list):
+            return field_value not in compare_value
+        return str(field_value) not in str(compare_value).split(",")
+
+    return False
 
 
 def create_guard_function(code: str, ref_doc):
@@ -926,43 +1845,54 @@ def process_delayed_transitions():
     """
     Scheduled task: Process delayed transitions (after/delay in XState).
     Run every minute.
+
+    Uses the new delayed_transitions field on Machine Instance which stores
+    scheduled transitions with their fire times.
     """
-    # Find instances with pending delayed transitions
+    # Find active instances with pending delayed transitions
     instances = frappe.get_all(
         "Machine Instance",
         filters={
-            "status": "active"
+            "status": "active",
+            "delayed_transitions": ["!=", "[]"]
         },
-        fields=["name", "machine", "current_state", "context"]
+        fields=["name", "reference_doctype", "reference_name", "delayed_transitions"]
     )
 
+    now = frappe.utils.now_datetime()
+
     for inst in instances:
-        machine = frappe.get_doc("State Machine", inst.machine)
-        config = json.loads(machine.json_config)
-        state_config = find_state_config(config, inst.current_state)
+        try:
+            delayed = json.loads(inst.delayed_transitions or "[]")
 
-        if not state_config:
-            continue
+            for delay in delayed:
+                fire_at = frappe.utils.get_datetime(delay.get("fire_at"))
 
-        # Check for "after" transitions
-        after_transitions = state_config.get("after", {})
-        context = json.loads(inst.context or "{}")
+                if fire_at <= now:
+                    # Get transition config
+                    event_data = delay.get("event_data", {})
+                    transition_config = event_data.get("transition", {})
 
-        for delay_ms, transition in after_transitions.items():
-            delay_field = f"_delay_{delay_ms}_started"
-            if context.get(delay_field):
-                started_at = context[delay_field]
-                elapsed = (frappe.utils.now_datetime() -
-                          frappe.utils.get_datetime(started_at)).total_seconds() * 1000
+                    # Determine the event to fire
+                    delay_key = delay.get("key", "")
+                    delay_ms = delay_key.split(":")[-1] if ":" in delay_key else "0"
 
-                if elapsed >= int(delay_ms):
-                    # Trigger delayed transition
+                    # Trigger the delayed transition
                     trigger_event_sync(
-                        frappe.db.get_value("Machine Instance", inst.name, "reference_doctype"),
-                        frappe.db.get_value("Machine Instance", inst.name, "reference_name"),
+                        inst.reference_doctype,
+                        inst.reference_name,
                         f"xstate.after.{delay_ms}",
-                        {}
+                        event_data
                     )
+
+                    # Remove this delay from the instance
+                    instance_doc = frappe.get_doc("Machine Instance", inst.name)
+                    instance_doc.remove_delayed_transition(delay_key)
+                    instance_doc.save(ignore_permissions=True)
+                    frappe.db.commit()
+
+        except Exception as e:
+            frappe.log_error(f"Error processing delayed transition for {inst.name}: {e}")
 
 
 # ============================================================================

@@ -22,16 +22,22 @@ app_color = "#6366f1"
 # ============================================================================
 
 # Include JS/CSS in desk (for form integration)
-app_include_css = "/assets/xstate_workflow/css/workflow.css"
-app_include_js = "/assets/xstate_workflow/js/workflow_client.js"
+app_include_css = [
+    "/assets/xstate_workflow/css/workflow.css",  # Base workflow styles
+    "/assets/xstate_workflow/js/workflow_builder.desk.css"  # React component styles
+]
+app_include_js = [
+    "/assets/xstate_workflow/js/workflow_builder.desk.iife.js",  # React components for desk
+    "/assets/xstate_workflow/js/workflow_client.js"  # Vanilla JS form integration
+]
 
-# Include in website/web pages (for workflow builder)
+# Include in website/web pages (for workflow builder standalone page)
 web_include_css = [
     "/assets/xstate_workflow/css/workflow.css",
-    "/assets/xstate_workflow/css/workflow_builder.css"
+    "/assets/xstate_workflow/js/workflow_builder.css"  # Built from standalone app
 ]
 web_include_js = [
-    "/assets/xstate_workflow/js/workflow_builder.bundle.js"
+    "/assets/xstate_workflow/js/workflow_builder.standalone.iife.js"  # Standalone React app
 ]
 
 # ============================================================================

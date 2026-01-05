@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@xstate-workflow/core": ["../../packages/core/src"],
+      "@xstate-workflow/core/*": ["../../packages/core/src/*"],
+      "@xstate-workflow/frappe-adapter": ["../../packages/frappe-adapter/src"],
+      "@xstate-workflow/frappe-adapter/*": ["../../packages/frappe-adapter/src/*"]
+    }
+  },
+  "include": ["src/**/*", "../../packages/core/src/**/*", "../../packages/frappe-adapter/src/**/*"]
+}

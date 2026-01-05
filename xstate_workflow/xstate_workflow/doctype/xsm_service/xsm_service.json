@@ -1,0 +1,181 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:service_name",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "service_name",
+  "service_type",
+  "is_active",
+  "column_break_basic",
+  "description",
+  "python_section",
+  "python_path",
+  "is_async",
+  "http_section",
+  "http_url",
+  "http_method",
+  "column_break_http",
+  "http_headers",
+  "execution_section",
+  "timeout",
+  "retry_count",
+  "column_break_exec",
+  "retry_delay"
+ ],
+ "fields": [
+  {
+   "fieldname": "service_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Service Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "python",
+   "fieldname": "service_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Service Type",
+   "options": "python\nhttp\nbackground_job",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "depends_on": "eval:doc.service_type=='python' || doc.service_type=='background_job'",
+   "fieldname": "python_section",
+   "fieldtype": "Section Break",
+   "label": "Python Configuration"
+  },
+  {
+   "depends_on": "eval:doc.service_type=='python' || doc.service_type=='background_job'",
+   "description": "Full Python path to the function (e.g., myapp.services.send_notification)",
+   "fieldname": "python_path",
+   "fieldtype": "Data",
+   "label": "Python Path",
+   "mandatory_depends_on": "eval:doc.service_type=='python' || doc.service_type=='background_job'"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.service_type=='python'",
+   "description": "Execute in background job queue",
+   "fieldname": "is_async",
+   "fieldtype": "Check",
+   "label": "Run Asynchronously"
+  },
+  {
+   "depends_on": "eval:doc.service_type=='http'",
+   "fieldname": "http_section",
+   "fieldtype": "Section Break",
+   "label": "HTTP Configuration"
+  },
+  {
+   "depends_on": "eval:doc.service_type=='http'",
+   "description": "Full URL to call (e.g., https://api.example.com/webhook)",
+   "fieldname": "http_url",
+   "fieldtype": "Data",
+   "label": "HTTP URL",
+   "mandatory_depends_on": "eval:doc.service_type=='http'",
+   "options": "URL"
+  },
+  {
+   "default": "POST",
+   "depends_on": "eval:doc.service_type=='http'",
+   "fieldname": "http_method",
+   "fieldtype": "Select",
+   "label": "HTTP Method",
+   "options": "GET\nPOST\nPUT\nPATCH\nDELETE"
+  },
+  {
+   "fieldname": "column_break_http",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.service_type=='http'",
+   "description": "JSON object with headers to send (e.g., {\"Authorization\": \"Bearer xxx\"})",
+   "fieldname": "http_headers",
+   "fieldtype": "Code",
+   "label": "HTTP Headers",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "execution_section",
+   "fieldtype": "Section Break",
+   "label": "Execution Settings"
+  },
+  {
+   "default": "60",
+   "description": "Timeout in seconds",
+   "fieldname": "timeout",
+   "fieldtype": "Int",
+   "label": "Timeout (seconds)"
+  },
+  {
+   "default": "0",
+   "description": "Number of times to retry on failure",
+   "fieldname": "retry_count",
+   "fieldtype": "Int",
+   "label": "Retry Count"
+  },
+  {
+   "fieldname": "column_break_exec",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "5",
+   "depends_on": "eval:doc.retry_count > 0",
+   "description": "Seconds to wait between retries",
+   "fieldname": "retry_delay",
+   "fieldtype": "Int",
+   "label": "Retry Delay (seconds)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Xstate Workflow",
+ "name": "XSM Service",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "search_fields": "service_name,service_type",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
