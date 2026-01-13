@@ -478,9 +478,13 @@ class TestApprovalAPI(FrappeTestCase):
 
         counts = get_approval_counts()
 
-        self.assertIn("pending", counts)
-        self.assertIn("completed", counts)
-        self.assertGreaterEqual(counts["pending"], 1)
+        # New user-centric status keys
+        self.assertIn("pending_with_me", counts)
+        self.assertIn("completed_by_me", counts)
+        self.assertIn("overdue_with_me", counts)
+        self.assertIn("escalated", counts)
+        self.assertIn("in_progress_others", counts)
+        self.assertGreaterEqual(counts["pending_with_me"], 1)
 
 
 class TestMachineInstancePermissions(FrappeTestCase):

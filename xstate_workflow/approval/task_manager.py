@@ -298,17 +298,23 @@ def cancel_pending_tasks(workflow_instance: str) -> int:
 
 def get_my_approval_tasks(
     user: str = None,
-    status: str = "Pending",
+    status: str = "pending_with_me",
     limit: int = 20,
     offset: int = 0,
     filters: dict = None
 ) -> list[dict]:
     """
-    Get approval tasks for a user.
+    Get approval tasks for a user with user-centric status filtering.
 
     Args:
         user: User ID (defaults to session user)
-        status: Task status filter (default: "Pending")
+        status: User-centric status filter. Options:
+            - "pending_with_me": Tasks assigned to user (direct or role) that are pending
+            - "overdue_with_me": Pending tasks past due date
+            - "completed_by_me": Tasks completed by this user
+            - "escalated": Escalated tasks assigned to user
+            - "in_progress_others": Workflows user participated in, currently with someone else
+            - Legacy values ("Pending", "Completed", etc.) are also supported
         limit: Maximum number of tasks to return
         offset: Offset for pagination
         filters: Additional filters
@@ -317,54 +323,108 @@ def get_my_approval_tasks(
         List of task dicts
     """
     user = user or frappe.session.user
-
-    # Get user's roles for role-based task assignment
     user_roles = frappe.get_roles(user)
 
-    # Build OR filters: assigned directly to user OR assigned to a role the user has
-    or_filters = [
-        {"assigned_to": user}
-    ]
+    # Handle new user-centric status types
+    if status == "pending_with_me":
+        # Tasks assigned to user (direct or role) that are pending
+        base_filters = {"status": "Pending"}
+        or_filters = [{"assigned_to": user}]
+        if user_roles:
+            or_filters.append({"assigned_role": ["in", user_roles]})
 
-    # Add role-based filter if user has any roles
-    if user_roles:
-        or_filters.append({"assigned_role": ["in", user_roles]})
+    elif status == "overdue_with_me":
+        # Pending tasks that are past due date
+        base_filters = {
+            "status": "Pending",
+            "due_date": ["<", now_datetime()]
+        }
+        or_filters = [{"assigned_to": user}]
+        if user_roles:
+            or_filters.append({"assigned_role": ["in", user_roles]})
 
-    # Additional filters for status
-    base_filters = {"status": status}
+    elif status == "completed_by_me":
+        # Tasks completed by this user (regardless of original assignee)
+        base_filters = {"completed_by": user, "status": "Completed"}
+        or_filters = None
+
+    elif status == "escalated":
+        # Escalated tasks assigned to user
+        base_filters = {"status": "Escalated"}
+        or_filters = [{"assigned_to": user}]
+        if user_roles:
+            or_filters.append({"assigned_role": ["in", user_roles]})
+
+    elif status == "in_progress_others":
+        # Workflows user participated in, currently with someone else
+        return _get_in_progress_others(user, user_roles, limit, offset)
+
+    else:
+        # Legacy support: treat as direct status filter
+        base_filters = {"status": status}
+        or_filters = [{"assigned_to": user}]
+        if user_roles:
+            or_filters.append({"assigned_role": ["in", user_roles]})
+
+    # Apply additional filters if provided
     if filters:
         base_filters.update(filters)
 
-    tasks = frappe.get_all(
-        "Approval Task",
-        filters=base_filters,
-        or_filters=or_filters,
-        fields=[
-            "name",
-            "workflow_instance",
-            "node_id",
-            "node_label",
-            "reference_doctype",
-            "reference_name",
-            "assigned_to",
-            "assigned_role",
-            "status",
-            "priority",
-            "due_date",
-            "available_actions",
-            "action_taken",
-            "completed_by",
-            "creation",
-            "modified"
-        ],
-        order_by="priority desc, due_date asc, creation asc",
-        limit_page_length=limit,
-        limit_start=offset
-    )
+    # Query tasks
+    if or_filters:
+        tasks = frappe.get_all(
+            "Approval Task",
+            filters=base_filters,
+            or_filters=or_filters,
+            fields=_get_task_fields(),
+            order_by="priority desc, due_date asc, creation asc",
+            limit_page_length=limit,
+            limit_start=offset
+        )
+    else:
+        tasks = frappe.get_all(
+            "Approval Task",
+            filters=base_filters,
+            fields=_get_task_fields(),
+            order_by="priority desc, due_date asc, creation asc",
+            limit_page_length=limit,
+            limit_start=offset
+        )
 
-    # Parse available_actions JSON and enrich with document details
+    # Enrich tasks with additional details
+    _enrich_tasks(tasks)
+
+    return tasks
+
+
+def _get_task_fields() -> list[str]:
+    """Return the standard fields to fetch for approval tasks."""
+    return [
+        "name",
+        "workflow_instance",
+        "node_id",
+        "node_label",
+        "reference_doctype",
+        "reference_name",
+        "assigned_to",
+        "assigned_role",
+        "status",
+        "priority",
+        "due_date",
+        "available_actions",
+        "action_taken",
+        "completed_by",
+        "completed_at",
+        "creation",
+        "modified"
+    ]
+
+
+def _enrich_tasks(tasks: list[dict]) -> None:
+    """Enrich tasks with additional details (modifies in place)."""
     for task in tasks:
-        if task.available_actions:
+        # Parse available_actions JSON
+        if task.get("available_actions"):
             try:
                 task["available_actions"] = json.loads(task.available_actions)
             except json.JSONDecodeError:
@@ -373,7 +433,7 @@ def get_my_approval_tasks(
             task["available_actions"] = ["Approve", "Reject"]
 
         # Calculate overdue status
-        if task.due_date:
+        if task.get("due_date"):
             task["is_overdue"] = frappe.utils.get_datetime(task.due_date) < now_datetime()
         else:
             task["is_overdue"] = False
@@ -390,18 +450,26 @@ def get_my_approval_tasks(
                 task["doc_created"] = doc_info.creation
                 task["doc_modified"] = doc_info.modified
                 task["doc_owner"] = doc_info.owner
-
-                # Get owner's full name
-                task["doc_owner_name"] = frappe.db.get_value("User", doc_info.owner, "full_name") or doc_info.owner
+                task["doc_owner_name"] = frappe.db.get_value(
+                    "User", doc_info.owner, "full_name"
+                ) or doc_info.owner
         except Exception:
             pass
 
         # Get completed_by full name for completed tasks
         if task.get("completed_by"):
-            task["completed_by_name"] = frappe.db.get_value("User", task.completed_by, "full_name") or task.completed_by
+            task["completed_by_name"] = frappe.db.get_value(
+                "User", task.completed_by, "full_name"
+            ) or task.completed_by
+
+        # Get assigned_to full name
+        if task.get("assigned_to"):
+            task["assigned_to_name"] = frappe.db.get_value(
+                "User", task.assigned_to, "full_name"
+            ) or task.assigned_to
 
         # Get workflow submission date from Machine Instance
-        if task.workflow_instance:
+        if task.get("workflow_instance"):
             task["workflow_submitted"] = frappe.db.get_value(
                 "Machine Instance", task.workflow_instance, "creation"
             )
@@ -416,7 +484,7 @@ def get_my_approval_tasks(
                 AND name != %s
                 ORDER BY completed_at DESC
                 LIMIT 1
-            """, (task.workflow_instance, task.name), as_dict=True)
+            """, (task.get("workflow_instance"), task.get("name")), as_dict=True)
 
             if last_approval:
                 approver = last_approval[0]
@@ -427,7 +495,74 @@ def get_my_approval_tasks(
         except Exception:
             pass
 
-    return tasks
+
+def _get_in_progress_others(
+    user: str,
+    user_roles: list[str],
+    limit: int,
+    offset: int
+) -> list[dict]:
+    """
+    Get tasks in workflows user participated in, currently with someone else.
+
+    This shows workflows where the user:
+    1. Submitted/created the document, OR
+    2. Previously approved (was assigned and completed a task)
+
+    AND the workflow is still active with tasks assigned to others.
+    """
+    # Get workflow instances user participated in (as assignee or completer)
+    participated = frappe.db.sql("""
+        SELECT DISTINCT workflow_instance
+        FROM `tabApproval Task`
+        WHERE (assigned_to = %s OR completed_by = %s)
+        AND workflow_instance IS NOT NULL
+    """, (user, user), as_list=True)
+
+    if not participated:
+        return []
+
+    workflow_ids = [w[0] for w in participated]
+
+    # Build query to get current pending tasks in those workflows NOT assigned to user
+    # We need tasks where:
+    # - workflow_instance in participated workflows
+    # - status is active (Pending, In Progress, Escalated)
+    # - NOT assigned to current user (directly or via role)
+
+    # First get all active tasks in participated workflows
+    all_tasks = frappe.get_all(
+        "Approval Task",
+        filters={
+            "workflow_instance": ["in", workflow_ids],
+            "status": ["in", ["Pending", "In Progress", "Escalated"]]
+        },
+        fields=_get_task_fields(),
+        order_by="creation desc"
+    )
+
+    # Filter out tasks that ARE assigned to the current user
+    tasks = []
+    for task in all_tasks:
+        is_assigned_to_user = False
+
+        # Check direct assignment
+        if task.assigned_to == user:
+            is_assigned_to_user = True
+        # Check role-based assignment
+        elif task.assigned_role and task.assigned_role in user_roles:
+            is_assigned_to_user = True
+
+        if not is_assigned_to_user:
+            tasks.append(task)
+
+    # Apply pagination
+    paginated_tasks = tasks[offset:offset + limit]
+
+    # Enrich tasks
+    _enrich_tasks(paginated_tasks)
+
+    return paginated_tasks
 
 
 def get_task_for_node(workflow_instance: str, node_id: str) -> "Document | None":

@@ -14,7 +14,7 @@ from frappe import _
 
 @frappe.whitelist()
 def get_my_approval_tasks(
-    status: str = "Pending",
+    status: str = "pending_with_me",
     limit: int = 20,
     offset: int = 0,
     filters: str = None
@@ -23,7 +23,12 @@ def get_my_approval_tasks(
     Get approval tasks for the current user.
 
     Args:
-        status: Task status filter
+        status: User-centric status filter. Options:
+            - "pending_with_me": Tasks assigned to user (direct or role) that are pending
+            - "overdue_with_me": Pending tasks past due date
+            - "completed_by_me": Tasks completed by this user
+            - "escalated": Escalated tasks assigned to user
+            - "in_progress_others": Workflows user participated in, currently with someone else
         limit: Page size
         offset: Page offset
         filters: Additional JSON filters
@@ -32,6 +37,7 @@ def get_my_approval_tasks(
         Dict with tasks and total count
     """
     from xstate_workflow.approval import get_my_approval_tasks as get_tasks
+    from frappe.utils import now_datetime
 
     additional_filters = json.loads(filters) if filters else None
 
@@ -43,27 +49,8 @@ def get_my_approval_tasks(
         filters=additional_filters
     )
 
-    # Get total count (including role-based tasks)
-    user_roles = frappe.get_roles(frappe.session.user)
-    base_count_filters = {"status": status}
-    if additional_filters:
-        base_count_filters.update(additional_filters)
-
-    # Count tasks assigned directly to user
-    direct_filters = {**base_count_filters, "assigned_to": frappe.session.user}
-    direct_count = frappe.db.count("Approval Task", direct_filters)
-
-    # Count tasks assigned to user's roles (excluding those already counted)
-    role_count = 0
-    if user_roles:
-        role_filters = {
-            **base_count_filters,
-            "assigned_role": ["in", user_roles],
-            "assigned_to": ["!=", frappe.session.user]
-        }
-        role_count = frappe.db.count("Approval Task", role_filters)
-
-    total = direct_count + role_count
+    # Get total count based on user-centric status
+    total = _get_status_count(frappe.session.user, status, additional_filters)
 
     return {
         "tasks": tasks,
@@ -260,32 +247,187 @@ def get_current_user_info() -> dict:
 @frappe.whitelist()
 def get_approval_counts() -> dict:
     """
-    Get counts of approval tasks for the current user.
+    Get counts of approval tasks for the current user using user-centric statuses.
 
     Returns:
-        Dict with task counts by status
+        Dict with task counts by user-centric status:
+        - pending_with_me: Tasks assigned to user (direct or role) that are pending
+        - overdue_with_me: Pending tasks past due date
+        - completed_by_me: Tasks completed by this user
+        - escalated: Escalated tasks assigned to user
+        - in_progress_others: Workflows user participated in, currently with someone else
     """
     user = frappe.session.user
 
-    counts = {}
-    for status in ["Pending", "In Progress", "Completed", "Cancelled", "Escalated"]:
-        counts[status.lower().replace(" ", "_")] = frappe.db.count(
-            "Approval Task",
-            {"assigned_to": user, "status": status}
-        )
+    return {
+        "pending_with_me": _get_status_count(user, "pending_with_me"),
+        "overdue_with_me": _get_status_count(user, "overdue_with_me"),
+        "completed_by_me": _get_status_count(user, "completed_by_me"),
+        "escalated": _get_status_count(user, "escalated"),
+        "in_progress_others": _get_status_count(user, "in_progress_others")
+    }
 
-    # Count overdue
+
+def _get_status_count(user: str, status: str, additional_filters: dict = None) -> int:
+    """
+    Get count for a specific user-centric status.
+
+    Args:
+        user: User ID
+        status: User-centric status
+        additional_filters: Optional additional filters
+
+    Returns:
+        Count of matching tasks
+    """
     from frappe.utils import now_datetime
-    counts["overdue"] = frappe.db.count(
-        "Approval Task",
-        {
-            "assigned_to": user,
+
+    user_roles = frappe.get_roles(user)
+
+    if status == "pending_with_me":
+        # Tasks assigned to user (direct or role) that are pending
+        base_filters = {"status": "Pending"}
+        if additional_filters:
+            base_filters.update(additional_filters)
+
+        # Count direct assignments
+        direct_count = frappe.db.count("Approval Task", {
+            **base_filters,
+            "assigned_to": user
+        })
+
+        # Count role-based assignments (where no one has claimed it yet)
+        role_count = 0
+        if user_roles:
+            role_count = frappe.db.count("Approval Task", {
+                **base_filters,
+                "assigned_role": ["in", user_roles],
+                "assigned_to": ["is", "not set"]
+            })
+            # Also count role-based where assigned_to is empty string
+            role_count += frappe.db.count("Approval Task", {
+                **base_filters,
+                "assigned_role": ["in", user_roles],
+                "assigned_to": ""
+            })
+
+        return direct_count + role_count
+
+    elif status == "overdue_with_me":
+        # Pending tasks that are past due date
+        base_filters = {
             "status": "Pending",
             "due_date": ["<", now_datetime()]
         }
+        if additional_filters:
+            base_filters.update(additional_filters)
+
+        direct_count = frappe.db.count("Approval Task", {
+            **base_filters,
+            "assigned_to": user
+        })
+
+        role_count = 0
+        if user_roles:
+            role_count = frappe.db.count("Approval Task", {
+                **base_filters,
+                "assigned_role": ["in", user_roles],
+                "assigned_to": ["is", "not set"]
+            })
+            role_count += frappe.db.count("Approval Task", {
+                **base_filters,
+                "assigned_role": ["in", user_roles],
+                "assigned_to": ""
+            })
+
+        return direct_count + role_count
+
+    elif status == "completed_by_me":
+        # Tasks completed by this user (regardless of original assignee)
+        base_filters = {"completed_by": user, "status": "Completed"}
+        if additional_filters:
+            base_filters.update(additional_filters)
+        return frappe.db.count("Approval Task", base_filters)
+
+    elif status == "escalated":
+        # Escalated tasks assigned to user
+        base_filters = {"status": "Escalated"}
+        if additional_filters:
+            base_filters.update(additional_filters)
+
+        direct_count = frappe.db.count("Approval Task", {
+            **base_filters,
+            "assigned_to": user
+        })
+
+        role_count = 0
+        if user_roles:
+            role_count = frappe.db.count("Approval Task", {
+                **base_filters,
+                "assigned_role": ["in", user_roles],
+                "assigned_to": ["is", "not set"]
+            })
+            role_count += frappe.db.count("Approval Task", {
+                **base_filters,
+                "assigned_role": ["in", user_roles],
+                "assigned_to": ""
+            })
+
+        return direct_count + role_count
+
+    elif status == "in_progress_others":
+        # Workflows user participated in, currently with someone else
+        return _count_in_progress_others(user, user_roles)
+
+    else:
+        # Legacy: direct status count
+        return frappe.db.count("Approval Task", {
+            "assigned_to": user,
+            "status": status
+        })
+
+
+def _count_in_progress_others(user: str, user_roles: list) -> int:
+    """
+    Count tasks in workflows user participated in, currently with someone else.
+    """
+    # Get workflow instances user participated in
+    participated = frappe.db.sql("""
+        SELECT DISTINCT workflow_instance
+        FROM `tabApproval Task`
+        WHERE (assigned_to = %s OR completed_by = %s)
+        AND workflow_instance IS NOT NULL
+    """, (user, user), as_list=True)
+
+    if not participated:
+        return 0
+
+    workflow_ids = [w[0] for w in participated]
+
+    # Get all active tasks in those workflows
+    all_tasks = frappe.get_all(
+        "Approval Task",
+        filters={
+            "workflow_instance": ["in", workflow_ids],
+            "status": ["in", ["Pending", "In Progress", "Escalated"]]
+        },
+        fields=["name", "assigned_to", "assigned_role"]
     )
 
-    return counts
+    # Count tasks NOT assigned to current user
+    count = 0
+    for task in all_tasks:
+        is_assigned_to_user = False
+
+        if task.assigned_to == user:
+            is_assigned_to_user = True
+        elif task.assigned_role and task.assigned_role in user_roles:
+            is_assigned_to_user = True
+
+        if not is_assigned_to_user:
+            count += 1
+
+    return count
 
 
 @frappe.whitelist()

@@ -18,28 +18,34 @@
 
     <!-- Stats Cards -->
     <div class="approval-stats row mb-4" id="approval-stats">
-        <div class="col-md-3">
-            <div class="stat-card pending">
-                <div class="stat-value" id="stat-pending">-</div>
-                <div class="stat-label">Pending</div>
+        <div class="col">
+            <div class="stat-card pending clickable" data-status="pending_with_me">
+                <div class="stat-value" id="stat-pending-with-me">-</div>
+                <div class="stat-label">Pending with me</div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stat-card overdue">
-                <div class="stat-value" id="stat-overdue">-</div>
-                <div class="stat-label">Overdue</div>
+        <div class="col">
+            <div class="stat-card overdue clickable" data-status="overdue_with_me">
+                <div class="stat-value" id="stat-overdue-with-me">-</div>
+                <div class="stat-label">Overdue with me</div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stat-card completed">
-                <div class="stat-value" id="stat-completed">-</div>
-                <div class="stat-label">Completed</div>
+        <div class="col">
+            <div class="stat-card completed clickable" data-status="completed_by_me">
+                <div class="stat-value" id="stat-completed-by-me">-</div>
+                <div class="stat-label">Completed by me</div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stat-card escalated">
+        <div class="col">
+            <div class="stat-card escalated clickable" data-status="escalated">
                 <div class="stat-value" id="stat-escalated">-</div>
                 <div class="stat-label">Escalated</div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="stat-card in-progress-others clickable" data-status="in_progress_others">
+                <div class="stat-value" id="stat-in-progress-others">-</div>
+                <div class="stat-label">In Progress (Others)</div>
             </div>
         </div>
     </div>
@@ -47,17 +53,20 @@
     <!-- Filters -->
     <div class="approval-filters mb-4">
         <div class="btn-group" role="group">
-            <button type="button" class="btn btn-outline-primary active" data-status="Pending">
-                Pending
+            <button type="button" class="btn btn-outline-primary active" data-status="pending_with_me">
+                Pending with me
             </button>
-            <button type="button" class="btn btn-outline-primary" data-status="In Progress">
-                In Progress
+            <button type="button" class="btn btn-outline-danger" data-status="overdue_with_me">
+                Overdue with me
             </button>
-            <button type="button" class="btn btn-outline-primary" data-status="Completed">
-                Completed
+            <button type="button" class="btn btn-outline-success" data-status="completed_by_me">
+                Completed by me
             </button>
-            <button type="button" class="btn btn-outline-primary" data-status="all">
-                All
+            <button type="button" class="btn btn-outline-warning" data-status="escalated">
+                Escalated
+            </button>
+            <button type="button" class="btn btn-outline-info" data-status="in_progress_others">
+                In Progress (Others)
             </button>
         </div>
     </div>
@@ -247,6 +256,21 @@
 .stat-card.overdue { border-left-color: #ef4444; }
 .stat-card.completed { border-left-color: #22c55e; }
 .stat-card.escalated { border-left-color: #f59e0b; }
+.stat-card.in-progress-others { border-left-color: #06b6d4; }
+
+.stat-card.clickable {
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.stat-card.clickable:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.stat-card.clickable.active {
+    box-shadow: 0 0 0 2px #3b82f6;
+}
 
 .stat-value {
     font-size: 32px;
@@ -259,6 +283,7 @@
 .stat-card.overdue .stat-value { color: #ef4444; }
 .stat-card.completed .stat-value { color: #22c55e; }
 .stat-card.escalated .stat-value { color: #f59e0b; }
+.stat-card.in-progress-others .stat-value { color: #06b6d4; }
 
 .stat-label {
     color: #6b7280;
@@ -446,7 +471,7 @@ body.modal-open {
 
 <script>
 frappe.ready(function() {
-    let currentStatus = 'Pending';
+    let currentStatus = 'pending_with_me';
     let currentPage = 0;
     const pageSize = 10;
     let pendingAction = {};
@@ -457,6 +482,7 @@ frappe.ready(function() {
     loadUserInfo();
     loadStats();
     loadTasks();
+    updateActiveStates();
 
     function loadUserInfo() {
         frappe.call({
@@ -483,23 +509,46 @@ frappe.ready(function() {
     // Filter buttons
     document.querySelectorAll('.approval-filters .btn').forEach(btn => {
         btn.addEventListener('click', function() {
-            document.querySelectorAll('.approval-filters .btn').forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
             currentStatus = this.dataset.status;
             currentPage = 0;
+            updateActiveStates();
             loadTasks();
         });
     });
+
+    // Stat card click handlers
+    document.querySelectorAll('.stat-card.clickable').forEach(card => {
+        card.addEventListener('click', function() {
+            currentStatus = this.dataset.status;
+            currentPage = 0;
+            updateActiveStates();
+            loadTasks();
+        });
+    });
+
+    // Update active states for buttons and stat cards
+    function updateActiveStates() {
+        // Update filter buttons
+        document.querySelectorAll('.approval-filters .btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.status === currentStatus);
+        });
+
+        // Update stat cards
+        document.querySelectorAll('.stat-card.clickable').forEach(card => {
+            card.classList.toggle('active', card.dataset.status === currentStatus);
+        });
+    }
 
     function loadStats() {
         frappe.call({
             method: 'xstate_workflow.api.approval.get_approval_counts',
             callback: function(r) {
                 if (r.message) {
-                    document.getElementById('stat-pending').textContent = r.message.pending || 0;
-                    document.getElementById('stat-overdue').textContent = r.message.overdue || 0;
-                    document.getElementById('stat-completed').textContent = r.message.completed || 0;
+                    document.getElementById('stat-pending-with-me').textContent = r.message.pending_with_me || 0;
+                    document.getElementById('stat-overdue-with-me').textContent = r.message.overdue_with_me || 0;
+                    document.getElementById('stat-completed-by-me').textContent = r.message.completed_by_me || 0;
                     document.getElementById('stat-escalated').textContent = r.message.escalated || 0;
+                    document.getElementById('stat-in-progress-others').textContent = r.message.in_progress_others || 0;
                 }
             }
         });
@@ -512,7 +561,7 @@ frappe.ready(function() {
         frappe.call({
             method: 'xstate_workflow.api.approval.get_my_approval_tasks',
             args: {
-                status: currentStatus === 'all' ? '' : currentStatus,
+                status: currentStatus,
                 limit: pageSize,
                 offset: currentPage * pageSize
             },
@@ -600,7 +649,10 @@ frappe.ready(function() {
 
                 <div class="access-reason">
                     <strong>Your access:</strong>
-                    ${isCompleted ?
+                    ${currentStatus === 'in_progress_others' ?
+                      `<span class="access-badge">You participated in this workflow</span>
+                       <span class="text-muted ms-2">Currently with: ${task.assigned_to_name || task.assigned_to || task.assigned_role || 'Unassigned'}</span>` :
+                      isCompleted ?
                       (wasCompletedByMe ? `<span class="access-badge">Actioned by you</span>` :
                        `<span class="access-badge">Actioned by ${task.completed_by_name || task.completed_by}</span>`) :
                       isAssignedToMe ? `<span class="access-badge">Awaiting your action</span>` :
@@ -618,8 +670,8 @@ frappe.ready(function() {
                 </div>
                 ` : ''}
 
-                ${isPending ? `
-                    <!-- Action buttons for pending tasks -->
+                ${isPending && currentStatus !== 'in_progress_others' ? `
+                    <!-- Action buttons for pending tasks assigned to me -->
                     <div class="task-actions-inline" id="actions-${task.name}">
                         <div class="action-buttons" id="buttons-${task.name}">
                             ${isRoleBased && !task.assigned_to ? `
@@ -650,12 +702,18 @@ frappe.ready(function() {
                             </div>
                         </div>
                     </div>
+                ` : currentStatus === 'in_progress_others' ? `
+                    <!-- Status info for tasks with others -->
+                    <div class="task-status-badge">
+                        <span class="badge bg-info">${task.status}</span>
+                        <span class="text-muted">Waiting for ${task.assigned_to_name || task.assigned_to || task.assigned_role || 'assignment'}</span>
+                    </div>
                 ` : `
-                    <!-- Status badge for non-pending tasks -->
+                    <!-- Status badge for completed/other tasks -->
                     <div class="task-status-badge">
                         <span class="badge bg-${task.status === 'Completed' ? 'success' : task.status === 'Rejected' ? 'danger' : 'secondary'}">${task.status}</span>
                         ${task.action_taken ? `<span class="text-muted">Action: ${task.action_taken}</span>` : ''}
-                        ${task.completed_by ? `<span class="text-muted">by ${task.completed_by}</span>` : ''}
+                        ${task.completed_by ? `<span class="text-muted">by ${task.completed_by_name || task.completed_by}</span>` : ''}
                     </div>
                 `}
             </div>
@@ -680,11 +738,25 @@ frappe.ready(function() {
 
     function renderEmptyState() {
         const container = document.getElementById('approval-tasks');
+        let emptyMessage = { icon: '&#10003;', title: 'No pending approvals', subtitle: "You're all caught up!" };
+
+        const statusMessages = {
+            'pending_with_me': { icon: '&#10003;', title: 'No pending approvals', subtitle: "You're all caught up!" },
+            'overdue_with_me': { icon: '&#128077;', title: 'No overdue tasks', subtitle: 'All tasks are on schedule!' },
+            'completed_by_me': { icon: '&#128203;', title: 'No completed tasks', subtitle: "You haven't completed any tasks yet" },
+            'escalated': { icon: '&#128203;', title: 'No escalated tasks', subtitle: 'No tasks have been escalated to you' },
+            'in_progress_others': { icon: '&#128101;', title: 'No workflows in progress', subtitle: 'Workflows you participated in are all complete' }
+        };
+
+        if (statusMessages[currentStatus]) {
+            emptyMessage = statusMessages[currentStatus];
+        }
+
         container.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">&#10003;</div>
-                <h3>No pending approvals</h3>
-                <p>You're all caught up!</p>
+                <div class="empty-state-icon">${emptyMessage.icon}</div>
+                <h3>${emptyMessage.title}</h3>
+                <p>${emptyMessage.subtitle}</p>
             </div>
         `;
         document.getElementById('approval-pagination').innerHTML = '';
