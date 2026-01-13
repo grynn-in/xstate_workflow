@@ -121,6 +121,61 @@ def get_machine_state(doctype: str, docname: str) -> dict:
 
 
 @frappe.whitelist()
+def get_machine_state_with_history(doctype: str, docname: str) -> dict:
+    """
+    Get current state of a document's workflow instance with full transition history.
+    Used by the workflow instance viewer for runtime state visualization.
+
+    Args:
+        doctype: Reference DocType name
+        docname: Reference document name
+
+    Returns:
+        dict with current state, context, available events, and transition history
+    """
+    instance = get_instance_for_doc(doctype, docname)
+
+    if not instance:
+        return {
+            "has_workflow": False,
+            "message": _("No workflow attached to this document")
+        }
+
+    available_events = get_next_events(
+        instance.machine,
+        instance.current_state,
+        json.loads(instance.context or "{}")
+    )
+
+    # Parse transition log
+    transition_log = json.loads(instance.transition_log or "[]")
+
+    # Get all state names from machine config for visualization
+    all_states = []
+    try:
+        machine_doc = frappe.get_doc("State Machine", instance.machine)
+        config = json.loads(machine_doc.json_config)
+        all_states = list(config.get("states", {}).keys())
+    except Exception:
+        pass
+
+    return {
+        "has_workflow": True,
+        "instance_name": instance.name,
+        "machine": instance.machine,
+        "current_state": instance.current_state,
+        "status": instance.status,
+        "context": json.loads(instance.context or "{}"),
+        "last_event": instance.last_event,
+        "last_transition_at": str(instance.last_transition_at) if instance.last_transition_at else None,
+        "available_events": available_events,
+        "transition_count": instance.transition_count,
+        "transition_log": transition_log,
+        "all_states": all_states
+    }
+
+
+@frappe.whitelist()
 def save_machine(machine_id: str, json_config: str, title: str = "",
                  workflow_builder_config: str = None, attached_doctype: str = None) -> dict:
     """

@@ -301,3 +301,59 @@ export async function getMachineState(
     { doctype, docname }
   );
 }
+
+/**
+ * Transition log entry type
+ */
+export interface TransitionLogEntry {
+  timestamp: string;
+  event: string;
+  from_state: string;
+  to_state: string;
+  success: boolean;
+  error?: string;
+  user?: string;
+}
+
+/**
+ * Machine state with history response type
+ */
+export interface MachineStateWithHistory {
+  has_workflow: boolean;
+  instance_name?: string;
+  machine?: string;
+  current_state?: string;
+  status?: 'idle' | 'active' | 'final' | 'error' | 'archived';
+  context?: Record<string, unknown>;
+  available_events?: Array<{
+    event: string;
+    target: string | null;
+    guards: string[];
+    actions: string[];
+    enabled: boolean;
+  }>;
+  transition_count?: number;
+  transition_log?: TransitionLogEntry[];
+  all_states?: string[];
+  last_event?: string;
+  last_transition_at?: string;
+  message?: string;
+}
+
+/**
+ * Get current workflow state for a document with full transition history.
+ * Used by the instance viewer for runtime state visualization.
+ */
+export async function getMachineStateWithHistory(
+  doctype: string,
+  docname: string
+): Promise<MachineStateWithHistory> {
+  if (!frappe) {
+    throw new Error('Frappe not available');
+  }
+
+  return frappe.xcall(
+    'xstate_workflow.workflow_engine.get_machine_state_with_history',
+    { doctype, docname }
+  );
+}

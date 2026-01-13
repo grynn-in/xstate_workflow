@@ -3,15 +3,41 @@ import { Handle, Position } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { WorkflowNodeData } from '../../types';
 
+/**
+ * Extended node data with runtime state properties for instance viewer
+ */
+export interface RuntimeNodeData extends WorkflowNodeData {
+  /** Node is the currently active state */
+  isCurrentState?: boolean;
+  /** Node has been visited in transition history */
+  isVisitedState?: boolean;
+  /** Node is an available transition target */
+  isAvailableTarget?: boolean;
+  /** Node would be available but is blocked by guard */
+  isDisabledTarget?: boolean;
+}
+
 export interface BaseStateNodeProps {
   id: string;
-  data: WorkflowNodeData;
+  data: RuntimeNodeData;
   selected?: boolean;
   children?: ReactNode;
 }
 
 function BaseStateNodeComponent({ data, selected, children }: BaseStateNodeProps) {
-  const { label, xstateType, isInitial, entryActions, exitActions, description } = data;
+  const {
+    label,
+    xstateType,
+    isInitial,
+    entryActions,
+    exitActions,
+    description,
+    // Runtime state props
+    isCurrentState,
+    isVisitedState,
+    isAvailableTarget,
+    isDisabledTarget,
+  } = data;
 
   const nodeType = isInitial ? 'initial' : xstateType;
   const entryCount = entryActions?.length || 0;
@@ -22,9 +48,21 @@ function BaseStateNodeComponent({ data, selected, children }: BaseStateNodeProps
       className={clsx(
         'xsw-node',
         nodeType,
-        selected && 'selected'
+        selected && 'selected',
+        // Runtime state classes
+        isCurrentState && 'xsw-node-current',
+        isVisitedState && 'xsw-node-visited',
+        isAvailableTarget && 'xsw-node-available',
+        isDisabledTarget && 'xsw-node-disabled'
       )}
     >
+      {/* Current state badge */}
+      {isCurrentState && (
+        <div className="xsw-current-badge">
+          <span className="xsw-current-pulse" />
+          Current
+        </div>
+      )}
       {/* Input Handle */}
       <Handle
         type="target"

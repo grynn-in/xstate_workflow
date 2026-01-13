@@ -1,0 +1,412 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Workflow Viewer - {{ doctype }} {{ docname }}{% endblock %}
+
+{% block head_include %}
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {
+    background: #f3f4f6;
+  }
+
+  .viewer-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  .viewer-header {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+
+  .viewer-header h1 {
+    margin: 0 0 8px 0;
+    font-size: 24px;
+    color: #1f2937;
+  }
+
+  .viewer-header .subtitle {
+    color: #6b7280;
+    font-size: 14px;
+  }
+
+  .viewer-header .subtitle a {
+    color: #3b82f6;
+    text-decoration: none;
+  }
+
+  .state-card {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+
+  .state-card h2 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    color: #374151;
+    font-weight: 600;
+  }
+
+  .current-state {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .state-badge {
+    display: inline-block;
+    padding: 12px 24px;
+    border-radius: 24px;
+    font-weight: 600;
+    font-size: 18px;
+  }
+
+  .state-badge.pending { background: #fef3c7; color: #92400e; }
+  .state-badge.approved { background: #d1fae5; color: #065f46; }
+  .state-badge.rejected { background: #fee2e2; color: #991b1b; }
+  .state-badge.draft { background: #f3f4f6; color: #374151; }
+  .state-badge.default { background: #dbeafe; color: #1e40af; }
+
+  .status-label {
+    color: #6b7280;
+    font-size: 14px;
+  }
+
+  .diagram-container {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+
+  .workflow-diagram {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: #f9fafb;
+    border-radius: 8px;
+  }
+
+  .diagram-state {
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-weight: 500;
+    border: 2px solid #e5e7eb;
+    background: white;
+  }
+
+  .diagram-state.current {
+    border-color: #3b82f6;
+    background: #eff6ff;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  }
+
+  .diagram-state.final {
+    border-color: #10b981;
+    background: #ecfdf5;
+  }
+
+  .diagram-arrow {
+    color: #9ca3af;
+    font-size: 20px;
+  }
+
+  .transitions-list {
+    margin-top: 16px;
+  }
+
+  .transition-item {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    background: #f9fafb;
+    border-radius: 8px;
+    margin-bottom: 8px;
+  }
+
+  .transition-item .from { color: #6b7280; }
+  .transition-item .arrow { margin: 0 12px; color: #9ca3af; }
+  .transition-item .to { color: #1f2937; font-weight: 500; }
+  .transition-item .event {
+    margin-left: auto;
+    padding: 4px 12px;
+    background: #e0e7ff;
+    color: #4338ca;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .history-section {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+
+  .history-item {
+    display: flex;
+    align-items: flex-start;
+    padding: 12px 0;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  .history-item:last-child {
+    border-bottom: none;
+  }
+
+  .history-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #3b82f6;
+    margin-right: 12px;
+    margin-top: 5px;
+  }
+
+  .history-content {
+    flex: 1;
+  }
+
+  .history-states {
+    font-weight: 500;
+    color: #1f2937;
+  }
+
+  .history-meta {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 4px;
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #6b7280;
+    text-decoration: none;
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+
+  .back-link:hover {
+    color: #3b82f6;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: #6b7280;
+  }
+
+  .error {
+    text-align: center;
+    padding: 40px;
+    color: #ef4444;
+  }
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="viewer-container">
+  <a href="javascript:history.back()" class="back-link">← Back to Document</a>
+
+  <div class="viewer-header">
+    <h1>⚡ Workflow Viewer</h1>
+    <div class="subtitle">
+      <span id="doc-link"></span>
+    </div>
+  </div>
+
+  <div id="viewer-content">
+    <div class="loading">Loading workflow state...</div>
+  </div>
+</div>
+
+<script>
+(function() {
+  // Extract params from URL
+  var pathMatch = window.location.pathname.match(/\/xstate-viewer\/([^\/\?]+)/);
+  var machineId = pathMatch ? decodeURIComponent(pathMatch[1]) : '';
+  var params = new URLSearchParams(window.location.search);
+  var doctype = params.get('doctype') || '';
+  var docname = params.get('docname') || '';
+
+  console.log('Viewer params:', { machineId, doctype, docname });
+
+  // Update doc link
+  document.getElementById('doc-link').innerHTML =
+    '<a href="/app/' + doctype.toLowerCase().replace(/ /g, '-') + '/' + encodeURIComponent(docname) + '">' +
+    doctype + ': ' + docname + '</a>';
+
+  // Helper for API calls (works on both desk and website pages)
+  function apiCall(method, args) {
+    return fetch('/api/method/' + method, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Frappe-CSRF-Token': frappe.csrf_token || ''
+      },
+      body: JSON.stringify(args)
+    }).then(function(r) { return r.json(); });
+  }
+
+  // Load workflow state
+  apiCall('xstate_workflow.api.workflow.get_workflow_state', { doctype: doctype, docname: docname })
+    .then(function(r) {
+      if (r.message) {
+        renderWorkflowState(r.message, machineId);
+      } else {
+        showError('No workflow found for this document');
+      }
+    })
+    .catch(function(err) {
+      showError('Failed to load workflow: ' + (err.message || 'Unknown error'));
+    });
+
+  // Load workflow definition for diagram
+  apiCall('xstate_workflow.api.workflow.get_workflow_definition', { machine_id: machineId })
+    .then(function(r) {
+      if (r.message && r.message.json_config) {
+        renderDiagram(JSON.parse(r.message.json_config));
+      }
+    });
+
+  // Load transition history
+  apiCall('xstate_workflow.api.workflow.get_transition_history', { doctype: doctype, docname: docname, limit: 20 })
+    .then(function(r) {
+      if (r.message) {
+        renderHistory(r.message);
+      }
+    });
+
+  function getStateClass(state) {
+    var s = state.toLowerCase();
+    if (s.includes('pending')) return 'pending';
+    if (s.includes('approved') || s.includes('completed')) return 'approved';
+    if (s.includes('rejected') || s.includes('cancelled')) return 'rejected';
+    if (s.includes('draft')) return 'draft';
+    return 'default';
+  }
+
+  function formatState(state) {
+    return state.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+  }
+
+  function renderWorkflowState(state, machineId) {
+    var html = '<div class="state-card">' +
+      '<h2>Current State</h2>' +
+      '<div class="current-state">' +
+        '<span class="state-badge ' + getStateClass(state.current_state) + '">' +
+          formatState(state.current_state) +
+        '</span>' +
+        '<span class="status-label">Status: ' + (state.status || 'active') + '</span>' +
+      '</div>';
+
+    if (state.available_events && state.available_events.length > 0) {
+      html += '<h2 style="margin-top: 20px;">Available Actions</h2>' +
+        '<div class="transitions-list">';
+      state.available_events.forEach(function(evt) {
+        if (evt.enabled) {
+          html += '<div class="transition-item">' +
+            '<span class="from">' + formatState(state.current_state) + '</span>' +
+            '<span class="arrow">→</span>' +
+            '<span class="to">' + (evt.target ? formatState(evt.target) : '?') + '</span>' +
+            '<span class="event">' + evt.event + '</span>' +
+          '</div>';
+        }
+      });
+      html += '</div>';
+    }
+
+    html += '</div>';
+
+    html += '<div class="diagram-container">' +
+      '<h2>Workflow Diagram</h2>' +
+      '<div id="workflow-diagram" class="workflow-diagram">Loading diagram...</div>' +
+    '</div>';
+
+    html += '<div class="history-section">' +
+      '<h2>Transition History</h2>' +
+      '<div id="history-list">Loading history...</div>' +
+    '</div>';
+
+    document.getElementById('viewer-content').innerHTML = html;
+
+    // Store current state for diagram highlighting
+    window.currentWorkflowState = state.current_state;
+  }
+
+  function renderDiagram(config) {
+    var states = config.states || {};
+    var initial = config.initial || '';
+    var currentState = window.currentWorkflowState || '';
+
+    var stateNames = Object.keys(states);
+    if (stateNames.length === 0) {
+      document.getElementById('workflow-diagram').innerHTML = '<div class="error">No states defined</div>';
+      return;
+    }
+
+    var html = '';
+    stateNames.forEach(function(stateName, index) {
+      var stateConfig = states[stateName];
+      var isCurrent = stateName === currentState;
+      var isFinal = stateConfig.type === 'final';
+
+      html += '<div class="diagram-state' + (isCurrent ? ' current' : '') + (isFinal ? ' final' : '') + '">' +
+        formatState(stateName) +
+      '</div>';
+
+      if (index < stateNames.length - 1) {
+        html += '<span class="diagram-arrow">→</span>';
+      }
+    });
+
+    document.getElementById('workflow-diagram').innerHTML = html;
+  }
+
+  function renderHistory(history) {
+    if (!history || history.length === 0) {
+      document.getElementById('history-list').innerHTML = '<div class="loading">No transition history</div>';
+      return;
+    }
+
+    var html = '';
+    history.forEach(function(entry) {
+      html += '<div class="history-item">' +
+        '<div class="history-dot"></div>' +
+        '<div class="history-content">' +
+          '<div class="history-states">' +
+            formatState(entry.from_state || 'Start') + ' → ' + formatState(entry.to_state) +
+          '</div>' +
+          '<div class="history-meta">' +
+            '<strong>' + entry.event + '</strong>' +
+            (entry.timestamp ? ' • ' + entry.timestamp : '') +
+            (entry.user ? ' • ' + entry.user : '') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    });
+
+    document.getElementById('history-list').innerHTML = html;
+  }
+
+  function showError(msg) {
+    document.getElementById('viewer-content').innerHTML = '<div class="error">' + msg + '</div>';
+  }
+})();
+</script>
+{% endblock %}

@@ -3,3 +3,5 @@ export { NodePalette } from './NodePalette';
 export { GuardBuilderPanel } from './GuardBuilderPanel';
 export { ActionBuilderPanel } from './ActionBuilderPanel';
 export { TriggerConfigPanel } from './TriggerConfigPanel';
+export { RuntimeInfoPanel } from './RuntimeInfoPanel';
+export type { RuntimeInfoPanelProps } from './RuntimeInfoPanel';

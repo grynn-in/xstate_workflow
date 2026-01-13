@@ -289,6 +289,47 @@ def get_roles() -> list:
 
 
 @frappe.whitelist()
+def get_transition_history(
+    doctype: str,
+    docname: str,
+    limit: int = 20
+) -> list:
+    """
+    Get transition history for a document from Machine Instance.
+
+    This reads from the Machine Instance's transition_log JSON field.
+    """
+    from xstate_workflow.workflow_engine import get_instance_for_doc
+
+    instance = get_instance_for_doc(doctype, docname)
+    if not instance:
+        return []
+
+    # Parse transition log from instance
+    history = []
+
+    if instance.transition_log:
+        try:
+            logs = json.loads(instance.transition_log) if isinstance(instance.transition_log, str) else instance.transition_log
+            # Reverse to get most recent first and limit
+            logs = list(reversed(logs[-limit:]))
+
+            for log in logs:
+                history.append({
+                    "from_state": log.get("from_state", ""),
+                    "to_state": log.get("to_state", ""),
+                    "event": log.get("event", ""),
+                    "timestamp": log.get("timestamp", ""),
+                    "user": log.get("user", ""),
+                    "success": log.get("success", True)
+                })
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return history
+
+
+@frappe.whitelist()
 def bulk_get_workflow_states(doc_refs: str | list) -> dict:
     """
     Batch get workflow states for multiple documents.

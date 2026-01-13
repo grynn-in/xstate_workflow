@@ -173,6 +173,24 @@ export function WorkflowStateIndicator({
       >
         &#x21bb;
       </button>
+
+      {/* View Workflow Diagram link */}
+      {state.machine && (
+        <a
+          href={`/xstate-viewer/${encodeURIComponent(state.machine)}?doctype=${encodeURIComponent(doctype)}&docname=${encodeURIComponent(docname)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            marginLeft: '8px',
+            fontSize: '11px',
+            color: '#6b7280',
+            textDecoration: 'none',
+          }}
+          title="View workflow diagram"
+        >
+          &#128202; View Diagram
+        </a>
+      )}
     </div>
   );
 }
