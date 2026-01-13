@@ -289,7 +289,7 @@
   }
 
   // Load workflow state
-  apiCall('xstate_workflow.api.workflow.get_workflow_state', { doctype: doctype, docname: docname })
+  apiCall('xstate_workflow.xstate_workflow.api.workflow.get_workflow_state', { doctype: doctype, docname: docname })
     .then(function(r) {
       if (r.message) {
         renderWorkflowState(r.message, machineId);
@@ -302,7 +302,7 @@
     });
 
   // Load workflow definition for diagram
-  apiCall('xstate_workflow.api.workflow.get_workflow_definition', { machine_id: machineId })
+  apiCall('xstate_workflow.xstate_workflow.api.workflow.get_workflow_definition', { machine_id: machineId })
     .then(function(r) {
       if (r.message && r.message.json_config) {
         renderDiagram(JSON.parse(r.message.json_config));
@@ -310,7 +310,7 @@
     });
 
   // Load transition history
-  apiCall('xstate_workflow.api.workflow.get_transition_history', { doctype: doctype, docname: docname, limit: 20 })
+  apiCall('xstate_workflow.xstate_workflow.api.workflow.get_transition_history', { doctype: doctype, docname: docname, limit: 20 })
     .then(function(r) {
       if (r.message) {
         renderHistory(r.message);
