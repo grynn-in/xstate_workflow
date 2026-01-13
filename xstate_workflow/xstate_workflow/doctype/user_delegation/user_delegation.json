@@ -1,0 +1,146 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:{delegator}-{delegate}-{from_date}",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "delegation_section",
+  "delegator",
+  "delegate",
+  "column_break_deleg",
+  "is_active",
+  "dates_section",
+  "from_date",
+  "to_date",
+  "column_break_dates",
+  "reason",
+  "scope_section",
+  "scope",
+  "scoped_doctypes",
+  "scoped_workflows"
+ ],
+ "fields": [
+  {
+   "fieldname": "delegation_section",
+   "fieldtype": "Section Break",
+   "label": "Delegation"
+  },
+  {
+   "fieldname": "delegator",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Delegator",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "delegate",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Delegate To",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_deleg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "dates_section",
+   "fieldtype": "Section Break",
+   "label": "Dates"
+  },
+  {
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "From Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "To Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason"
+  },
+  {
+   "fieldname": "scope_section",
+   "fieldtype": "Section Break",
+   "label": "Scope"
+  },
+  {
+   "default": "All",
+   "fieldname": "scope",
+   "fieldtype": "Select",
+   "label": "Scope",
+   "options": "All\nSpecific DocTypes\nSpecific Workflows"
+  },
+  {
+   "depends_on": "eval:doc.scope=='Specific DocTypes'",
+   "fieldname": "scoped_doctypes",
+   "fieldtype": "Table MultiSelect",
+   "label": "DocTypes",
+   "options": "User Delegation DocType"
+  },
+  {
+   "depends_on": "eval:doc.scope=='Specific Workflows'",
+   "fieldname": "scoped_workflows",
+   "fieldtype": "Table MultiSelect",
+   "label": "Workflows",
+   "options": "User Delegation Workflow"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Xstate Workflow",
+ "name": "User Delegation",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "All",
+   "write": 1
+  }
+ ],
+ "search_fields": "delegator,delegate,from_date,to_date",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

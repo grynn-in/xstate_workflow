@@ -11,6 +11,7 @@
   "machine",
   "reference_doctype",
   "reference_name",
+  "tenant",
   "column_break_ref",
   "status",
   "current_state",
@@ -62,6 +63,13 @@
    "label": "Reference Name",
    "options": "reference_doctype",
    "reqd": 1
+  },
+  {
+   "description": "Tenant for multi-tenant isolation",
+   "fieldname": "tenant",
+   "fieldtype": "Link",
+   "label": "Tenant",
+   "options": "Company"
   },
   {
    "fieldname": "column_break_ref",

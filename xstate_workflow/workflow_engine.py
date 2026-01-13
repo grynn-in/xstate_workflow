@@ -879,17 +879,124 @@ def get_or_create_instance(doctype: str, docname: str) -> str:
     if not state_machine:
         frappe.throw(_("No active State Machine attached to {0}").format(doctype))
 
+    # Get tenant from reference document
+    tenant = None
+    try:
+        from xstate_workflow.tenant import get_tenant_from_doc
+        ref_doc = frappe.get_doc(doctype, docname)
+        tenant = get_tenant_from_doc(ref_doc)
+    except Exception:
+        pass
+
     # Create new instance
     instance = frappe.get_doc({
         "doctype": "Machine Instance",
         "reference_doctype": doctype,
         "reference_name": docname,
-        "machine": state_machine
+        "machine": state_machine,
+        "tenant": tenant
     }).insert(ignore_permissions=True)
 
     frappe.db.commit()
 
+    # Execute entry actions for initial state
+    try:
+        machine_doc = frappe.get_doc("State Machine", state_machine)
+        config = json.loads(machine_doc.json_config)
+        initial_state = config.get("initial", "")
+
+        if initial_state:
+            state_config = find_state_config(config, initial_state)
+            if state_config:
+                ref_doc = frappe.get_doc(doctype, docname)
+                # Execute entry actions
+                entry_actions = state_config.get("entry", [])
+                if isinstance(entry_actions, str):
+                    entry_actions = [entry_actions]
+
+                actions = build_actions(machine_doc, ref_doc, instance)
+                for action_name in entry_actions:
+                    if action_name in actions:
+                        try:
+                            actions[action_name]({"instance": instance, "doc": ref_doc, "state": initial_state})
+                        except Exception as e:
+                            frappe.log_error(f"Entry action {action_name} failed: {e}")
+
+                # Also handle domain node entry (create approval tasks etc)
+                handle_domain_node_entry(instance, initial_state, state_config, ref_doc)
+    except Exception as e:
+        frappe.log_error(f"Failed to execute initial state entry actions: {e}")
+
     return instance.name
+
+
+def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_doc):
+    """Handle entry into a domain node state (create approval tasks, etc)."""
+    meta = state_config.get("meta", {})
+    domain_node = meta.get("domain_node", {})
+
+    if not domain_node:
+        return
+
+    node_type = domain_node.get("type")
+
+    if node_type == "approval":
+        # Create approval task
+        try:
+            from xstate_workflow.approval.task_manager import create_approval_task
+            from xstate_workflow.resolvers import resolve_assignment
+
+            # Get resolver config and resolve assignees
+            resolver_config = domain_node.get("resolver", {})
+            assignees = resolve_assignment(ref_doc, resolver_config)
+
+            if not assignees:
+                frappe.log_error(f"No assignees resolved for approval node {state_name}")
+                return
+
+            # Get other config from domain_node
+            node_label = domain_node.get("label", state_name)
+            available_actions = domain_node.get("available_actions", ["Approve", "Reject"])
+            sla_hours = domain_node.get("sla_hours")
+            priority = domain_node.get("priority", "Medium")
+
+            # Get tenant from instance
+            tenant = instance.tenant if hasattr(instance, "tenant") else None
+
+            # Get assigned_role for role-based assignments
+            assigned_role = None
+            if resolver_config.get("type") == "role":
+                assigned_role = resolver_config.get("role")
+
+            create_approval_task(
+                workflow_instance=instance.name,
+                node_id=state_name,
+                node_label=node_label,
+                assignees=assignees,
+                available_actions=available_actions,
+                sla_hours=sla_hours,
+                priority=priority,
+                tenant=tenant,
+                assigned_role=assigned_role
+            )
+
+            # Show appropriate message based on assignment type
+            if assigned_role:
+                frappe.msgprint(
+                    _("Approval task created and assigned to role: {0}").format(assigned_role),
+                    indicator="blue",
+                    alert=True
+                )
+            else:
+                frappe.msgprint(
+                    _("Approval task created and assigned to {0}").format(assignees[0]),
+                    indicator="blue",
+                    alert=True
+                )
+        except ImportError as e:
+            frappe.log_error(f"Import error creating approval task: {e}")
+        except Exception as e:
+            frappe.log_error(f"Failed to create approval task: {e}")
 
 
 def get_instance_for_doc(doctype: str, docname: str):
@@ -1078,6 +1185,10 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
                 instance, target_state_config["invoke"], context, input_data, ref_doc
             )
 
+        # Handle domain node entry (create approval tasks, etc)
+        if target_state_config:
+            handle_domain_node_entry(instance, target_state, target_state_config, ref_doc)
+
         # Check if final state
         is_final = target_state_config and target_state_config.get("type") == "final"
 
@@ -1090,6 +1201,13 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
         # Log transition
         instance.log_transition(event, old_state, target_state, success=True)
 
+        # Reload to get latest version before save to avoid conflicts
+        instance.reload()
+        instance.current_state = target_state
+        instance.context = json.dumps(context)
+        instance.last_event = event
+        instance.last_transition_at = frappe.utils.now()
+        instance.status = "final" if is_final else "active"
         instance.save(ignore_permissions=True)
 
         # Post-transition hooks
@@ -1600,6 +1718,13 @@ def build_actions(machine_doc, ref_doc, instance) -> dict:
                 action.python_code, ref_doc, instance, action.is_async
             )
 
+    # Add domain node actions (approval, auto-action, etc.)
+    try:
+        from xstate_workflow.domain_nodes import get_domain_node_actions
+        actions.update(get_domain_node_actions(machine_doc, ref_doc, instance))
+    except ImportError:
+        pass
+
     # Add default actions
     actions["log"] = lambda ctx, evt: frappe.log_error(
         f"XState Log: {evt}", "XState Action"
@@ -1736,11 +1861,26 @@ def check_and_trigger(doc, method=None):
     if not machine:
         return
 
-    # Get instance
+    # Get or create instance
     instance = get_instance_for_doc(doc.doctype, doc.name)
 
     if not instance:
-        return
+        # Create new instance for documents with active workflow
+        # This triggers the workflow to start in its initial state
+        if method == "after_insert":
+            try:
+                instance_name = get_or_create_instance(doc.doctype, doc.name)
+                instance = frappe.get_doc("Machine Instance", instance_name)
+                frappe.msgprint(
+                    _("Workflow '{0}' started for this document").format(machine),
+                    indicator="blue",
+                    alert=True
+                )
+            except Exception as e:
+                frappe.log_error(f"Failed to create workflow instance: {e}")
+                return
+        else:
+            return
 
     # Auto-trigger based on field changes
     machine_doc = frappe.get_doc("State Machine", machine)

@@ -6,7 +6,23 @@ import type {
   XStateStateConfig,
   XStateTransition,
   GuardConfig,
+  DomainNodeType,
+  ApprovalNodeData,
+  ThresholdGateNodeData,
+  ClassificationBranchNodeData,
+  AutoActionNodeData,
+  EndNodeData,
 } from '../types';
+
+// Domain node types that need special handling
+const DOMAIN_NODE_TYPES: DomainNodeType[] = [
+  'start',
+  'threshold_gate',
+  'classification_branch',
+  'approval',
+  'auto_action',
+  'end',
+];
 
 /**
  * Converts a WorkflowBuilder configuration to XState v5 JSON format
@@ -40,6 +56,14 @@ export function workflowToXState(config: WorkflowBuilderConfig): XStateMachineCo
 }
 
 /**
+ * Checks if a node is a domain-specific node
+ */
+function isDomainNode(node: WorkflowNode): boolean {
+  const domainType = (node.data as { domainType?: DomainNodeType }).domainType;
+  return domainType !== undefined && DOMAIN_NODE_TYPES.includes(domainType);
+}
+
+/**
  * Builds an XState state configuration from a workflow node
  */
 function buildStateConfig(
@@ -49,6 +73,11 @@ function buildStateConfig(
 ): XStateStateConfig {
   const config: XStateStateConfig = {};
   const { data } = node;
+
+  // Handle domain-specific nodes
+  if (isDomainNode(node)) {
+    return buildDomainNodeConfig(node, allNodes, allEdges);
+  }
 
   // Set state type for special states
   if (data.xstateType === 'final') {
@@ -218,4 +247,339 @@ function calculateDelayMs(delay: number, unit?: string): number {
     default: // 'ms' or undefined
       return delay;
   }
+}
+
+/**
+ * Builds XState configuration for domain-specific nodes
+ */
+function buildDomainNodeConfig(
+  node: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[]
+): XStateStateConfig {
+  const domainType = (node.data as { domainType: DomainNodeType }).domainType;
+  const config: XStateStateConfig = {};
+
+  // Store domain node configuration in meta
+  config.meta = {
+    domain_node: {
+      type: domainType,
+      ...extractDomainNodeMeta(node),
+    },
+  };
+
+  switch (domainType) {
+    case 'start':
+      // Start node is just an entry point with an outgoing transition
+      return buildStartNodeConfig(node, allNodes, allEdges);
+
+    case 'end':
+      // End node is a final state
+      return buildEndNodeConfig(node);
+
+    case 'approval':
+      // Approval node creates a task and waits for action
+      return buildApprovalNodeConfig(node, allNodes, allEdges);
+
+    case 'threshold_gate':
+      // Threshold gate has conditional always transitions
+      return buildThresholdGateConfig(node, allNodes, allEdges);
+
+    case 'classification_branch':
+      // Classification branch has multiple guarded transitions
+      return buildClassificationBranchConfig(node, allNodes, allEdges);
+
+    case 'auto_action':
+      // Auto action runs entry action and transitions immediately
+      return buildAutoActionConfig(node, allNodes, allEdges);
+
+    default:
+      return config;
+  }
+}
+
+/**
+ * Extract domain-specific metadata from node data
+ */
+function extractDomainNodeMeta(node: WorkflowNode): Record<string, unknown> {
+  const domainType = (node.data as { domainType: DomainNodeType }).domainType;
+
+  switch (domainType) {
+    case 'approval': {
+      const approvalData = node.data as ApprovalNodeData;
+      return {
+        resolver: approvalData.resolver,
+        available_actions: approvalData.availableActions,
+        sla_hours: approvalData.slaHours,
+        priority: approvalData.priority,
+        fallback_user: approvalData.fallbackUser,
+        escalation: approvalData.escalation,
+        label: approvalData.label,
+      };
+    }
+
+    case 'threshold_gate': {
+      const gateData = node.data as ThresholdGateNodeData;
+      return {
+        threshold: gateData.threshold,
+        label: gateData.label,
+      };
+    }
+
+    case 'classification_branch': {
+      const branchData = node.data as ClassificationBranchNodeData;
+      return {
+        field: branchData.field,
+        branches: branchData.branches,
+        default_target: branchData.defaultTarget,
+        label: branchData.label,
+      };
+    }
+
+    case 'auto_action': {
+      const actionData = node.data as AutoActionNodeData;
+      return {
+        action_type: actionData.actionType,
+        action_config: actionData.actionConfig,
+        label: actionData.label,
+      };
+    }
+
+    case 'end': {
+      const endData = node.data as EndNodeData;
+      return {
+        final_status: endData.finalStatus,
+        label: endData.label,
+      };
+    }
+
+    default:
+      return { label: node.data.label };
+  }
+}
+
+function buildStartNodeConfig(
+  node: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[]
+): XStateStateConfig {
+  const config: XStateStateConfig = {
+    meta: {
+      domain_node: { type: 'start', label: node.data.label },
+    },
+  };
+
+  // Start nodes immediately transition to the next state
+  const outgoingEdges = allEdges.filter((e) => e.source === node.id);
+  if (outgoingEdges.length > 0) {
+    const targetNode = allNodes.find((n) => n.id === outgoingEdges[0].target);
+    if (targetNode) {
+      config.always = [{ target: targetNode.data.label }];
+    }
+  }
+
+  return config;
+}
+
+function buildEndNodeConfig(node: WorkflowNode): XStateStateConfig {
+  const endData = node.data as EndNodeData;
+  return {
+    type: 'final',
+    meta: {
+      domain_node: {
+        type: 'end',
+        final_status: endData.finalStatus,
+        label: endData.label,
+      },
+    },
+    // Add entry action to update status if configured
+    ...(endData.finalStatus && {
+      entry: ['update_status'],
+    }),
+  };
+}
+
+function buildApprovalNodeConfig(
+  node: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[]
+): XStateStateConfig {
+  const approvalData = node.data as ApprovalNodeData;
+  const config: XStateStateConfig = {
+    meta: {
+      domain_node: {
+        type: 'approval',
+        resolver: approvalData.resolver,
+        available_actions: approvalData.availableActions || ['Approve', 'Reject'],
+        sla_hours: approvalData.slaHours,
+        priority: approvalData.priority,
+        fallback_user: approvalData.fallbackUser,
+        escalation: approvalData.escalation,
+        label: approvalData.label,
+      },
+    },
+    // Entry action creates the approval task
+    entry: ['create_approval_task'],
+    // Exit action cleans up
+    exit: ['cancel_approval_tasks'],
+    on: {},
+  };
+
+  // Create transitions for each available action
+  const outgoingEdges = allEdges.filter((e) => e.source === node.id);
+  const actions = approvalData.availableActions || ['Approve', 'Reject'];
+
+  for (const action of actions) {
+    // Find edge for this action (by handle id or default mapping)
+    const actionLower = action.toLowerCase();
+    const matchingEdge = outgoingEdges.find((e) => {
+      const handleId = (e as { sourceHandle?: string }).sourceHandle;
+      return handleId === actionLower || handleId === action;
+    }) || outgoingEdges[actions.indexOf(action)];
+
+    if (matchingEdge) {
+      const targetNode = allNodes.find((n) => n.id === matchingEdge.target);
+      if (targetNode) {
+        config.on![action.toUpperCase()] = { target: targetNode.data.label };
+      }
+    }
+  }
+
+  return config;
+}
+
+function buildThresholdGateConfig(
+  node: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[]
+): XStateStateConfig {
+  const gateData = node.data as ThresholdGateNodeData;
+  const config: XStateStateConfig = {
+    meta: {
+      domain_node: {
+        type: 'threshold_gate',
+        threshold: gateData.threshold,
+        label: gateData.label,
+      },
+    },
+    always: [],
+  };
+
+  // Find pass and fail edges
+  const outgoingEdges = allEdges.filter((e) => e.source === node.id);
+  const passEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'pass');
+  const failEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'fail');
+
+  // Build threshold guard name
+  const guardName = gateData.threshold
+    ? `threshold_${gateData.threshold.field}_${gateData.threshold.operator}_${gateData.threshold.value}`
+    : 'threshold_check';
+
+  if (passEdge) {
+    const passTarget = allNodes.find((n) => n.id === passEdge.target);
+    if (passTarget) {
+      config.always!.push({
+        target: passTarget.data.label,
+        guard: guardName,
+      });
+    }
+  }
+
+  if (failEdge) {
+    const failTarget = allNodes.find((n) => n.id === failEdge.target);
+    if (failTarget) {
+      // Fail transition (no guard - default when pass guard fails)
+      config.always!.push({
+        target: failTarget.data.label,
+      });
+    }
+  }
+
+  return config;
+}
+
+function buildClassificationBranchConfig(
+  node: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[]
+): XStateStateConfig {
+  const branchData = node.data as ClassificationBranchNodeData;
+  const config: XStateStateConfig = {
+    meta: {
+      domain_node: {
+        type: 'classification_branch',
+        field: branchData.field,
+        branches: branchData.branches,
+        label: branchData.label,
+      },
+    },
+    always: [],
+  };
+
+  const outgoingEdges = allEdges.filter((e) => e.source === node.id);
+
+  // Build guarded transitions for each branch
+  for (const branch of branchData.branches || []) {
+    const branchEdge = outgoingEdges.find((e) =>
+      (e as { sourceHandle?: string }).sourceHandle === `branch-${branch.value}`
+    );
+
+    if (branchEdge) {
+      const targetNode = allNodes.find((n) => n.id === branchEdge.target);
+      if (targetNode) {
+        config.always!.push({
+          target: targetNode.data.label,
+          guard: `classification_${branchData.field}_eq_${branch.value}`,
+        });
+      }
+    }
+  }
+
+  // Default branch
+  if (branchData.defaultTarget) {
+    const defaultEdge = outgoingEdges.find((e) =>
+      (e as { sourceHandle?: string }).sourceHandle === 'default'
+    );
+    if (defaultEdge) {
+      const targetNode = allNodes.find((n) => n.id === defaultEdge.target);
+      if (targetNode) {
+        config.always!.push({
+          target: targetNode.data.label,
+        });
+      }
+    }
+  }
+
+  return config;
+}
+
+function buildAutoActionConfig(
+  node: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[]
+): XStateStateConfig {
+  const actionData = node.data as AutoActionNodeData;
+  const config: XStateStateConfig = {
+    meta: {
+      domain_node: {
+        type: 'auto_action',
+        action_type: actionData.actionType,
+        action_config: actionData.actionConfig,
+        label: actionData.label,
+      },
+    },
+    // Entry action executes the configured action
+    entry: [actionData.actionType || 'log'],
+  };
+
+  // Auto actions immediately transition to next state
+  const outgoingEdges = allEdges.filter((e) => e.source === node.id);
+  if (outgoingEdges.length > 0) {
+    const targetNode = allNodes.find((n) => n.id === outgoingEdges[0].target);
+    if (targetNode) {
+      config.always = [{ target: targetNode.data.label }];
+    }
+  }
+
+  return config;
 }

@@ -8,7 +8,26 @@ import type {
   WorkflowNodeData,
   WorkflowEdgeData,
   XStateNodeType,
+  DomainNodeType,
+  ApprovalNodeData,
+  ThresholdGateNodeData,
+  ClassificationBranchNodeData,
+  AutoActionNodeData,
+  EndNodeData,
+  StartNodeData,
 } from '../types';
+
+// Helper to check if a state has domain node metadata
+interface DomainNodeMeta {
+  type: DomainNodeType;
+  [key: string]: unknown;
+}
+
+function hasDomainNodeMeta(config: XStateStateConfig): config is XStateStateConfig & {
+  meta: { domain_node: DomainNodeMeta };
+} {
+  return config.meta?.domain_node?.type !== undefined;
+}
 
 let nodeIdCounter = 0;
 let edgeIdCounter = 0;
@@ -86,6 +105,29 @@ function processStates(
     const stateConfig = states[stateName];
     const nodeId = generateNodeId();
     stateIdMap.set(stateName, nodeId);
+
+    // Check if this is a domain node
+    if (hasDomainNodeMeta(stateConfig)) {
+      const domainNode = buildDomainNode(
+        nodeId,
+        stateName,
+        stateConfig,
+        existingPositions,
+        basePosition,
+        xOffset,
+        yOffset,
+        parentId
+      );
+      nodes.push(domainNode);
+
+      // Update offsets
+      xOffset += 200;
+      if (xOffset > 600) {
+        xOffset = 0;
+        yOffset += 150;
+      }
+      continue;
+    }
 
     // Determine state type
     const xstateType = determineStateType(stateConfig);
@@ -307,4 +349,106 @@ function createEdgeFromTransition(
     type: 'transition',
     data: edgeData,
   });
+}
+
+/**
+ * Build a domain node from XState config with domain_node metadata
+ */
+function buildDomainNode(
+  nodeId: string,
+  stateName: string,
+  stateConfig: XStateStateConfig & { meta: { domain_node: DomainNodeMeta } },
+  existingPositions: Map<string, { x: number; y: number }>,
+  basePosition: { x: number; y: number },
+  xOffset: number,
+  yOffset: number,
+  parentId?: string
+): WorkflowNode {
+  const meta = stateConfig.meta.domain_node;
+  const domainType = meta.type;
+
+  const position = existingPositions.get(stateName) || {
+    x: basePosition.x + xOffset,
+    y: basePosition.y + yOffset,
+  };
+
+  // Build node data based on domain type
+  let nodeData: WorkflowNodeData;
+
+  switch (domainType) {
+    case 'start':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'atomic',
+        domainType: 'start',
+      } as StartNodeData;
+      break;
+
+    case 'end':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'final',
+        domainType: 'end',
+        finalStatus: meta.final_status as string | undefined,
+      } as EndNodeData;
+      break;
+
+    case 'approval':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'atomic',
+        domainType: 'approval',
+        resolver: meta.resolver,
+        availableActions: (meta.available_actions as string[]) || ['Approve', 'Reject'],
+        slaHours: meta.sla_hours as number | undefined,
+        priority: meta.priority as 'Low' | 'Medium' | 'High' | 'Urgent' | undefined,
+        fallbackUser: meta.fallback_user as string | undefined,
+        escalation: meta.escalation as ApprovalNodeData['escalation'],
+      } as ApprovalNodeData;
+      break;
+
+    case 'threshold_gate':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'atomic',
+        domainType: 'threshold_gate',
+        threshold: meta.threshold as ThresholdGateNodeData['threshold'],
+      } as ThresholdGateNodeData;
+      break;
+
+    case 'classification_branch':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'atomic',
+        domainType: 'classification_branch',
+        field: meta.field as string,
+        branches: meta.branches as ClassificationBranchNodeData['branches'],
+        defaultTarget: meta.default_target as string | undefined,
+      } as ClassificationBranchNodeData;
+      break;
+
+    case 'auto_action':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'atomic',
+        domainType: 'auto_action',
+        actionType: meta.action_type as AutoActionNodeData['actionType'],
+        actionConfig: (meta.action_config as AutoActionNodeData['actionConfig']) || {},
+      } as AutoActionNodeData;
+      break;
+
+    default:
+      nodeData = {
+        label: stateName,
+        xstateType: 'atomic',
+      };
+  }
+
+  return {
+    id: nodeId,
+    type: domainType,
+    position,
+    data: nodeData,
+    ...(parentId && { parentId, extent: 'parent' as const }),
+  };
 }

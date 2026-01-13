@@ -52,8 +52,9 @@ website_context = {
 
 # Website route rules
 website_route_rules = [
-    {"from_route": "/workflow-builder", "to_route": "workflow-builder"},
-    {"from_route": "/workflow-builder/<machine_id>", "to_route": "workflow-builder"},
+    {"from_route": "/xstate-builder", "to_route": "xstate-builder"},
+    {"from_route": "/xstate-builder/<machine_id>", "to_route": "xstate-builder"},
+    {"from_route": "/my-approvals", "to_route": "my-approvals"},
 ]
 
 # ============================================================================
@@ -94,6 +95,10 @@ scheduler_events = {
     "cron": {
         "* * * * *": [
             "xstate_workflow.workflow_engine.process_delayed_transitions"
+        ],
+        # Check for overdue approval tasks every 15 minutes
+        "*/15 * * * *": [
+            "xstate_workflow.approval.task_manager.check_overdue_tasks"
         ]
     },
     # Daily cleanup of old instances

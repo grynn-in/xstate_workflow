@@ -21,10 +21,7 @@ def get_context(context):
     if not frappe.has_permission("State Machine", "read"):
         frappe.throw(_("You don't have permission to access Workflow Builder"), frappe.PermissionError)
 
-    # Get machine_id from URL if provided
-    machine_id = frappe.form_dict.get("machine_id") or frappe.form_dict.get("name")
-
-    context.machine_id = machine_id
+    # machine_id is extracted from URL via JavaScript in the template
     context.title = _("Workflow Builder")
 
     # Add meta tags

@@ -101,8 +101,25 @@
 </div>
 
 <script>
-  // Pass machine_id to React app if available
-  document.getElementById('workflow-builder-root').dataset.machineId = '{{ machine_id or "" }}';
+  // Get machine_id from URL path or query params
+  (function() {
+    var machineId = '';
+
+    // Try path: /xstate-builder/machine_name
+    var pathMatch = window.location.pathname.match(/\/xstate-builder\/([^\/\?]+)/);
+    if (pathMatch && pathMatch[1]) {
+      machineId = pathMatch[1];
+    }
+
+    // Try query param: ?machine_id=machine_name
+    if (!machineId) {
+      var params = new URLSearchParams(window.location.search);
+      machineId = params.get('machine_id') || params.get('name') || '';
+    }
+
+    document.getElementById('workflow-builder-root').dataset.machineId = machineId;
+    console.log('XState Builder: machine_id =', machineId || '(new workflow)');
+  })();
 </script>
 {% endblock %}
 

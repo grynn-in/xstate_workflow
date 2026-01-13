@@ -15,6 +15,7 @@
   "is_active",
   "version",
   "attached_doctype",
+  "tenant",
   "xstate_version",
   "configuration_section",
   "json_config",
@@ -78,6 +79,13 @@
    "in_list_view": 1,
    "label": "Attached DocType",
    "options": "DocType"
+  },
+  {
+   "description": "Tenant for multi-tenant isolation (e.g., Company)",
+   "fieldname": "tenant",
+   "fieldtype": "Link",
+   "label": "Tenant",
+   "options": "Company"
   },
   {
    "default": "v5",

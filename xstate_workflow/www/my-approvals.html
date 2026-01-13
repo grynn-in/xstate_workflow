@@ -1,0 +1,837 @@
+{% extends "templates/web.html" %}
+
+{% block title %}My Approvals{% endblock %}
+
+{% block page_content %}
+<div class="my-approvals-page">
+    <div class="page-header">
+        <h1>My Approvals</h1>
+        <p class="text-muted">Review and action your pending approval tasks</p>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="approval-stats row mb-4" id="approval-stats">
+        <div class="col-md-3">
+            <div class="stat-card pending">
+                <div class="stat-value" id="stat-pending">-</div>
+                <div class="stat-label">Pending</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card overdue">
+                <div class="stat-value" id="stat-overdue">-</div>
+                <div class="stat-label">Overdue</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card completed">
+                <div class="stat-value" id="stat-completed">-</div>
+                <div class="stat-label">Completed</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card escalated">
+                <div class="stat-value" id="stat-escalated">-</div>
+                <div class="stat-label">Escalated</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="approval-filters mb-4">
+        <div class="btn-group" role="group">
+            <button type="button" class="btn btn-outline-primary active" data-status="Pending">
+                Pending
+            </button>
+            <button type="button" class="btn btn-outline-primary" data-status="In Progress">
+                In Progress
+            </button>
+            <button type="button" class="btn btn-outline-primary" data-status="Completed">
+                Completed
+            </button>
+            <button type="button" class="btn btn-outline-primary" data-status="all">
+                All
+            </button>
+        </div>
+    </div>
+
+    <!-- Tasks List -->
+    <div class="approval-tasks" id="approval-tasks">
+        <div class="loading-indicator text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="approval-pagination mt-4" id="approval-pagination"></div>
+</div>
+
+<!-- Task Detail Modal -->
+<div class="modal fade" id="taskDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Approval Task</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="task-detail-content">
+                <!-- Loaded dynamically -->
+            </div>
+            <div class="modal-footer" id="task-actions">
+                <!-- Action buttons loaded dynamically -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reassign Modal -->
+<div class="modal fade" id="reassignModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Reassign Task</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Assign To</label>
+                    <select class="form-select" id="reassign-user">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Reason (optional)</label>
+                    <textarea class="form-control" id="reassign-reason" rows="2" placeholder="Reason for reassignment..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-primary" onclick="submitReassign()">Reassign</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Role Members Modal -->
+<div class="modal fade" id="roleMembersModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Role Members</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="role-members-content">
+                <!-- Populated dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.my-approvals-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.page-header {
+    margin-bottom: 30px;
+}
+
+.page-header h1 {
+    margin-bottom: 5px;
+}
+
+.stat-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    border-left: 4px solid #ccc;
+}
+
+.stat-card.pending { border-left-color: #3b82f6; }
+.stat-card.overdue { border-left-color: #ef4444; }
+.stat-card.completed { border-left-color: #22c55e; }
+.stat-card.escalated { border-left-color: #f59e0b; }
+
+.stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 5px;
+}
+
+.stat-card.pending .stat-value { color: #3b82f6; }
+.stat-card.overdue .stat-value { color: #ef4444; }
+.stat-card.completed .stat-value { color: #22c55e; }
+.stat-card.escalated .stat-value { color: #f59e0b; }
+
+.stat-label {
+    color: #6b7280;
+    font-size: 14px;
+}
+
+.approval-task-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    cursor: pointer;
+    transition: box-shadow 0.2s;
+}
+
+.approval-task-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.approval-task-card.overdue {
+    border-left: 4px solid #ef4444;
+}
+
+.task-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.task-title {
+    font-weight: 600;
+    font-size: 16px;
+    margin: 0;
+}
+
+.task-priority {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.task-priority.low { background: #e0f2fe; color: #0369a1; }
+.task-priority.medium { background: #fef3c7; color: #92400e; }
+.task-priority.high { background: #fee2e2; color: #991b1b; }
+.task-priority.urgent { background: #7f1d1d; color: #fff; }
+
+.task-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.task-assignee-info {
+    color: #6b7280;
+    font-size: 13px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 6px;
+}
+
+.task-actions-inline {
+    margin-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.task-status-badge {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.comment-box {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f8fafc;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.comment-box textarea {
+    width: 100%;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 8px;
+    resize: vertical;
+    min-height: 60px;
+}
+
+.comment-box .comment-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.btn-approve {
+    background: #22c55e;
+    color: #fff;
+    border: none;
+}
+
+.btn-approve:hover {
+    background: #16a34a;
+    color: #fff;
+}
+
+.btn-reject {
+    background: #ef4444;
+    color: #fff;
+    border: none;
+}
+
+.btn-reject:hover {
+    background: #dc2626;
+    color: #fff;
+}
+
+.btn-send-back {
+    background: #f59e0b;
+    color: #fff;
+    border: none;
+}
+
+.btn-send-back:hover {
+    background: #d97706;
+    color: #fff;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6b7280;
+}
+
+.empty-state-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.role-member-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.role-member-item:last-child {
+    border-bottom: none;
+}
+</style>
+
+<script>
+frappe.ready(function() {
+    let currentStatus = 'Pending';
+    let currentPage = 0;
+    const pageSize = 10;
+    let pendingAction = {};
+    let reassignTaskName = null;
+    const currentUser = frappe.session.user;
+
+    // Initialize
+    loadStats();
+    loadTasks();
+
+    // Filter buttons
+    document.querySelectorAll('.approval-filters .btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.approval-filters .btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentStatus = this.dataset.status;
+            currentPage = 0;
+            loadTasks();
+        });
+    });
+
+    function loadStats() {
+        frappe.call({
+            method: 'xstate_workflow.api.approval.get_approval_counts',
+            callback: function(r) {
+                if (r.message) {
+                    document.getElementById('stat-pending').textContent = r.message.pending || 0;
+                    document.getElementById('stat-overdue').textContent = r.message.overdue || 0;
+                    document.getElementById('stat-completed').textContent = r.message.completed || 0;
+                    document.getElementById('stat-escalated').textContent = r.message.escalated || 0;
+                }
+            }
+        });
+    }
+
+    function loadTasks() {
+        const container = document.getElementById('approval-tasks');
+        container.innerHTML = '<div class="loading-indicator text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>';
+
+        frappe.call({
+            method: 'xstate_workflow.api.approval.get_my_approval_tasks',
+            args: {
+                status: currentStatus === 'all' ? '' : currentStatus,
+                limit: pageSize,
+                offset: currentPage * pageSize
+            },
+            callback: function(r) {
+                if (r.message && r.message.tasks) {
+                    renderTasks(r.message.tasks, r.message.total);
+                } else {
+                    renderEmptyState();
+                }
+            }
+        });
+    }
+
+    function getActionButtonClass(action) {
+        const lowerAction = action.toLowerCase();
+        if (lowerAction === 'approve') return 'btn-approve';
+        if (lowerAction === 'reject') return 'btn-reject';
+        if (lowerAction === 'send back' || lowerAction === 'send_back') return 'btn-send-back';
+        return 'btn-secondary';
+    }
+
+    function renderTasks(tasks, total) {
+        const container = document.getElementById('approval-tasks');
+
+        if (tasks.length === 0) {
+            renderEmptyState();
+            return;
+        }
+
+        container.innerHTML = tasks.map(task => {
+            const isPending = task.status === 'Pending';
+            const isRoleBased = !!task.assigned_role;
+            const isAssignedToMe = task.assigned_to === currentUser;
+
+            return `
+            <div class="approval-task-card ${task.is_overdue ? 'overdue' : ''}" data-task="${task.name}">
+                <div class="task-header">
+                    <h3 class="task-title">${task.node_label || task.node_id}</h3>
+                    <span class="task-priority ${(task.priority || 'medium').toLowerCase()}">${task.priority || 'Medium'}</span>
+                </div>
+                <div class="task-meta">
+                    <span><strong>Document:</strong> ${task.reference_doctype} - ${task.reference_name}</span>
+                    ${task.due_date ? `<span><strong>Due:</strong> ${frappe.datetime.str_to_user(task.due_date)}</span>` : ''}
+                </div>
+
+                ${isRoleBased ? `
+                <div class="task-assignee-info">
+                    <strong>Assigned to role:</strong> ${task.assigned_role}
+                    ${task.assigned_to ? ` <span class="badge bg-info">Claimed by ${task.assigned_to}</span>` : ' <span class="badge bg-warning text-dark">Unclaimed</span>'}
+                    <button class="btn btn-link btn-sm p-0 ms-2" onclick="showRoleMembers('${task.name}', '${task.assigned_role}', event)">
+                        View members
+                    </button>
+                </div>
+                ` : ''}
+
+                ${isPending ? `
+                    <!-- Action buttons for pending tasks -->
+                    <div class="task-actions-inline" id="actions-${task.name}">
+                        <div class="action-buttons" id="buttons-${task.name}">
+                            ${(task.available_actions || ['Approve', 'Reject']).map(action => `
+                                <button class="btn btn-sm ${getActionButtonClass(action)}"
+                                        onclick="showInlineCommentBox('${task.name}', '${action}', event)">
+                                    ${action}
+                                </button>
+                            `).join('')}
+                            <button class="btn btn-sm btn-outline-secondary" onclick="showReassignModal('${task.name}', event)">
+                                Reassign
+                            </button>
+                            ${isRoleBased && !task.assigned_to ? `
+                                <button class="btn btn-sm btn-outline-primary" onclick="claimTask('${task.name}', event)">
+                                    Claim
+                                </button>
+                            ` : ''}
+                        </div>
+                        <div class="comment-box" id="commentbox-${task.name}" style="display:none;">
+                            <div class="mb-2"><strong id="action-label-${task.name}"></strong></div>
+                            <textarea id="comments-${task.name}" placeholder="Add comments (optional)..."></textarea>
+                            <div class="comment-actions">
+                                <button class="btn btn-sm btn-secondary" onclick="hideInlineCommentBox('${task.name}', event)">Cancel</button>
+                                <button class="btn btn-sm btn-primary" onclick="submitInlineAction('${task.name}', event)">Confirm</button>
+                            </div>
+                        </div>
+                    </div>
+                ` : `
+                    <!-- Status badge for non-pending tasks -->
+                    <div class="task-status-badge">
+                        <span class="badge bg-${task.status === 'Completed' ? 'success' : task.status === 'Rejected' ? 'danger' : 'secondary'}">${task.status}</span>
+                        ${task.action_taken ? `<span class="text-muted">Action: ${task.action_taken}</span>` : ''}
+                        ${task.completed_by ? `<span class="text-muted">by ${task.completed_by}</span>` : ''}
+                    </div>
+                `}
+            </div>
+            `;
+        }).join('');
+
+        // Add click handlers for task detail
+        container.querySelectorAll('.approval-task-card').forEach(card => {
+            card.addEventListener('click', function(e) {
+                if (!e.target.closest('button') && !e.target.closest('.comment-box') && !e.target.closest('textarea')) {
+                    showTaskDetail(this.dataset.task);
+                }
+            });
+        });
+
+        // Render pagination
+        renderPagination(total);
+    }
+
+    // Make getActionButtonClass available globally for modal
+    window.getActionButtonClass = getActionButtonClass;
+
+    function renderEmptyState() {
+        const container = document.getElementById('approval-tasks');
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">&#10003;</div>
+                <h3>No pending approvals</h3>
+                <p>You're all caught up!</p>
+            </div>
+        `;
+        document.getElementById('approval-pagination').innerHTML = '';
+    }
+
+    function renderPagination(total) {
+        const totalPages = Math.ceil(total / pageSize);
+        const paginationContainer = document.getElementById('approval-pagination');
+
+        if (totalPages <= 1) {
+            paginationContainer.innerHTML = '';
+            return;
+        }
+
+        let html = '<nav><ul class="pagination justify-content-center">';
+
+        // Previous button
+        html += `<li class="page-item ${currentPage === 0 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changePage(${currentPage - 1}); return false;">Previous</a>
+        </li>`;
+
+        // Page numbers
+        for (let i = 0; i < totalPages; i++) {
+            html += `<li class="page-item ${currentPage === i ? 'active' : ''}">
+                <a class="page-link" href="#" onclick="changePage(${i}); return false;">${i + 1}</a>
+            </li>`;
+        }
+
+        // Next button
+        html += `<li class="page-item ${currentPage === totalPages - 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changePage(${currentPage + 1}); return false;">Next</a>
+        </li>`;
+
+        html += '</ul></nav>';
+        paginationContainer.innerHTML = html;
+    }
+
+    window.changePage = function(page) {
+        currentPage = page;
+        loadTasks();
+    };
+
+    // Inline comment box functions
+    window.showInlineCommentBox = function(taskName, action, event) {
+        if (event) event.stopPropagation();
+
+        // Store pending action
+        pendingAction = { taskName, action };
+
+        // Hide buttons, show comment box
+        const buttonsDiv = document.getElementById('buttons-' + taskName);
+        const commentBox = document.getElementById('commentbox-' + taskName);
+        const actionLabel = document.getElementById('action-label-' + taskName);
+
+        if (buttonsDiv) buttonsDiv.style.display = 'none';
+        if (commentBox) commentBox.style.display = 'block';
+        if (actionLabel) actionLabel.textContent = `${action} this task:`;
+    };
+
+    window.hideInlineCommentBox = function(taskName, event) {
+        if (event) event.stopPropagation();
+
+        pendingAction = {};
+
+        // Show buttons, hide comment box
+        const buttonsDiv = document.getElementById('buttons-' + taskName);
+        const commentBox = document.getElementById('commentbox-' + taskName);
+
+        if (buttonsDiv) buttonsDiv.style.display = 'flex';
+        if (commentBox) commentBox.style.display = 'none';
+    };
+
+    window.submitInlineAction = function(taskName, event) {
+        if (event) event.stopPropagation();
+
+        const comments = document.getElementById('comments-' + taskName)?.value || '';
+        const action = pendingAction.action;
+
+        if (!action) {
+            frappe.msgprint('No action selected');
+            return;
+        }
+
+        frappe.call({
+            method: 'xstate_workflow.api.approval.complete_approval_task',
+            args: {
+                task_name: taskName,
+                action: action,
+                comments: comments
+            },
+            callback: function(r) {
+                if (r.exc) {
+                    frappe.msgprint({
+                        title: 'Error',
+                        indicator: 'red',
+                        message: 'Failed to complete task. Please try again.'
+                    });
+                } else {
+                    frappe.msgprint({
+                        title: 'Success',
+                        indicator: 'green',
+                        message: `Task ${action.toLowerCase()}d successfully`
+                    });
+                    pendingAction = {};
+                    loadStats();
+                    loadTasks();
+                }
+            },
+            error: function(r) {
+                frappe.msgprint({
+                    title: 'Error',
+                    indicator: 'red',
+                    message: 'Failed to complete task.'
+                });
+            }
+        });
+    };
+
+    // Task detail modal using Frappe dialog
+    window.showTaskDetail = function(taskName) {
+        frappe.call({
+            method: 'xstate_workflow.api.approval.get_task_details',
+            args: { task_name: taskName },
+            callback: function(r) {
+                if (r.message) {
+                    showTaskDetailDialog(r.message);
+                }
+            }
+        });
+    };
+
+    function showTaskDetailDialog(task) {
+        const isPending = task.status === 'Pending';
+        const docLink = `/app/${task.reference_doctype.toLowerCase().replace(/ /g, '-')}/${task.reference_name}`;
+
+        let fields = [
+            {
+                fieldtype: 'HTML',
+                options: `
+                    <div style="margin-bottom: 15px;">
+                        <h4>${task.node_label || task.node_id}</h4>
+                        <p><strong>Status:</strong> ${task.status} | <strong>Priority:</strong> ${task.priority}</p>
+                        <p><strong>Document:</strong> <a href="${docLink}" target="_blank">${task.reference_doctype} - ${task.reference_name}</a></p>
+                        ${task.assigned_to ? `<p><strong>Assigned To:</strong> ${task.assigned_to}</p>` : ''}
+                        ${task.due_date ? `<p><strong>Due Date:</strong> ${frappe.datetime.str_to_user(task.due_date)}</p>` : ''}
+                        ${task.is_overdue ? '<p style="color: red;"><strong>OVERDUE</strong></p>' : ''}
+                    </div>
+                `
+            }
+        ];
+
+        if (isPending) {
+            fields.push({
+                label: 'Comments',
+                fieldname: 'comments',
+                fieldtype: 'Small Text'
+            });
+        } else {
+            fields.push({
+                fieldtype: 'HTML',
+                options: `
+                    <p><strong>Action Taken:</strong> ${task.action_taken || 'N/A'}</p>
+                    ${task.comments ? `<p><strong>Comments:</strong> ${task.comments}</p>` : ''}
+                    ${task.completed_by ? `<p><strong>Completed By:</strong> ${task.completed_by}</p>` : ''}
+                `
+            });
+        }
+
+        const d = new frappe.ui.Dialog({
+            title: 'Approval Task Details',
+            fields: fields,
+            size: 'large'
+        });
+
+        if (isPending) {
+            // Add action buttons for pending tasks
+            (task.available_actions || ['Approve', 'Reject']).forEach(action => {
+                d.add_custom_action(action, () => {
+                    const comments = d.get_value('comments') || '';
+                    frappe.call({
+                        method: 'xstate_workflow.api.approval.complete_approval_task',
+                        args: {
+                            task_name: task.name,
+                            action: action,
+                            comments: comments
+                        },
+                        callback: function(r) {
+                            if (!r.exc) {
+                                d.hide();
+                                frappe.msgprint({
+                                    title: 'Success',
+                                    indicator: 'green',
+                                    message: `Task ${action.toLowerCase()}d successfully`
+                                });
+                                loadStats();
+                                loadTasks();
+                            }
+                        }
+                    });
+                }, action.toLowerCase() === 'approve' ? 'btn-success' : (action.toLowerCase() === 'reject' ? 'btn-danger' : 'btn-warning'));
+            });
+        }
+
+        d.show();
+    }
+
+    window.completeTaskFromModal = function(taskName, action) {
+        // Legacy - now handled in dialog
+    };
+
+    // Reassign functions
+    window.showReassignModal = function(taskName, event) {
+        if (event) event.stopPropagation();
+        reassignTaskName = taskName;
+
+        // Fetch users and show Frappe dialog
+        frappe.call({
+            method: 'frappe.client.get_list',
+            args: {
+                doctype: 'User',
+                filters: { enabled: 1, user_type: 'System User' },
+                fields: ['name', 'full_name'],
+                limit_page_length: 0
+            },
+            callback: function(r) {
+                const userOptions = r.message.map(u => ({
+                    label: u.full_name || u.name,
+                    value: u.name
+                }));
+
+                const d = new frappe.ui.Dialog({
+                    title: 'Reassign Task',
+                    fields: [
+                        {
+                            label: 'Assign To',
+                            fieldname: 'new_user',
+                            fieldtype: 'Select',
+                            options: userOptions.map(u => u.value).join('\n'),
+                            reqd: 1
+                        },
+                        {
+                            label: 'Reason (optional)',
+                            fieldname: 'reason',
+                            fieldtype: 'Small Text'
+                        }
+                    ],
+                    primary_action_label: 'Reassign',
+                    primary_action(values) {
+                        frappe.call({
+                            method: 'xstate_workflow.api.approval.reassign_task',
+                            args: {
+                                task_name: reassignTaskName,
+                                new_user: values.new_user,
+                                reason: values.reason
+                            },
+                            callback: function(r) {
+                                if (!r.exc) {
+                                    d.hide();
+                                    frappe.msgprint({
+                                        title: 'Success',
+                                        indicator: 'green',
+                                        message: 'Task reassigned successfully'
+                                    });
+                                    reassignTaskName = null;
+                                    loadTasks();
+                                }
+                            }
+                        });
+                    }
+                });
+                d.show();
+            }
+        });
+    };
+
+    window.submitReassign = function() {
+        // Legacy function - now handled in dialog
+    };
+
+    // Claim task function
+    window.claimTask = function(taskName, event) {
+        if (event) event.stopPropagation();
+
+        frappe.call({
+            method: 'xstate_workflow.api.approval.claim_task',
+            args: { task_name: taskName },
+            callback: function(r) {
+                if (!r.exc && r.message && r.message.success) {
+                    frappe.msgprint({
+                        title: 'Success',
+                        indicator: 'green',
+                        message: 'Task claimed successfully'
+                    });
+                    loadTasks();
+                }
+            },
+            error: function() {
+                frappe.msgprint({
+                    title: 'Error',
+                    indicator: 'red',
+                    message: 'Failed to claim task. You may not have the required role.'
+                });
+            }
+        });
+    };
+
+    // Show role members
+    window.showRoleMembers = function(taskName, roleName, event) {
+        if (event) event.stopPropagation();
+
+        frappe.call({
+            method: 'xstate_workflow.api.approval.get_role_assignees',
+            args: { task_name: taskName },
+            callback: function(r) {
+                let content = '';
+                if (r.message && r.message.length > 0) {
+                    content = `
+                        <p><strong>Users with role "${roleName}":</strong></p>
+                        <ul>
+                            ${r.message.map(u => `
+                                <li><strong>${u.full_name || u.name}</strong> (${u.name})</li>
+                            `).join('')}
+                        </ul>
+                    `;
+                } else {
+                    content = `<p class="text-muted">No users found with role "${roleName}"</p>`;
+                }
+
+                frappe.msgprint({
+                    title: `Role Members: ${roleName}`,
+                    message: content,
+                    wide: true
+                });
+            }
+        });
+    };
+});
+</script>
+{% endblock %}

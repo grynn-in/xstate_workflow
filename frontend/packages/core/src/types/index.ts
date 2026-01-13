@@ -6,6 +6,15 @@ export type XStateNodeType =
   | 'history'
   | 'final';
 
+// Domain-Specific Node Types
+export type DomainNodeType =
+  | 'start'
+  | 'threshold_gate'
+  | 'classification_branch'
+  | 'approval'
+  | 'auto_action'
+  | 'end';
+
 export type HistoryType = 'shallow' | 'deep';
 
 // XState Transition Types
@@ -216,4 +225,183 @@ export const BADGE_COLORS = {
   guard: '#fbbf24',
   action: '#22d3ee',
   selected: '#2490ef',
+} as const;
+
+// =============================================================================
+// DOMAIN-SPECIFIC NODE TYPES
+// =============================================================================
+
+// Assignment Resolver Configuration
+export type ResolverType =
+  | 'role'
+  | 'static_user'
+  | 'document_field'
+  | 'linked_doc_field'
+  | 'hierarchy_walk'
+  | 'delegation_matrix'
+  | 'cost_center_manager'
+  | 'department_head'
+  | 'reporting_manager';
+
+export interface RoleResolverConfig {
+  type: 'role';
+  role: string;
+  strategy?: 'all' | 'round_robin' | 'least_loaded';
+}
+
+export interface StaticUserResolverConfig {
+  type: 'static_user';
+  user_id: string;
+}
+
+export interface DocumentFieldResolverConfig {
+  type: 'document_field';
+  field_name: string;
+}
+
+export interface LinkedDocFieldResolverConfig {
+  type: 'linked_doc_field';
+  link_field: string;
+  user_field: string;
+}
+
+export interface HierarchyWalkResolverConfig {
+  type: 'hierarchy_walk';
+  hierarchy_doctype: string;
+  parent_field: string;
+  user_field: string;
+  start_from: 'owner' | 'document_field' | 'linked_doc';
+  start_field?: string;
+  level_mode: 'fixed' | 'until_condition' | 'all_up_to';
+  levels_up?: number;
+  max_levels?: number;
+  until_condition?: {
+    type: 'authority_covers_amount' | 'has_role' | 'field_equals' | 'is_root';
+    [key: string]: unknown;
+  };
+  skip_levels?: number;
+  max_depth?: number;
+}
+
+export interface DelegationMatrixResolverConfig {
+  type: 'delegation_matrix';
+  amount_field?: string;
+  category_field?: string;
+}
+
+export type ResolverConfig =
+  | RoleResolverConfig
+  | StaticUserResolverConfig
+  | DocumentFieldResolverConfig
+  | LinkedDocFieldResolverConfig
+  | HierarchyWalkResolverConfig
+  | DelegationMatrixResolverConfig
+  | { type: 'cost_center_manager' }
+  | { type: 'department_head' }
+  | { type: 'reporting_manager' };
+
+// Start Node Data
+export interface StartNodeData extends WorkflowNodeData {
+  domainType: 'start';
+}
+
+// Threshold Gate Node Data
+export interface ThresholdGateNodeData extends WorkflowNodeData {
+  domainType: 'threshold_gate';
+  threshold: {
+    field: string;
+    operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'ne';
+    value: number;
+  };
+  passTarget?: string;
+  failTarget?: string;
+}
+
+// Classification Branch Node Data
+export interface ClassificationBranchNodeData extends WorkflowNodeData {
+  domainType: 'classification_branch';
+  field: string;
+  branches: Array<{
+    value: string;
+    label?: string;
+    target?: string;
+  }>;
+  defaultTarget?: string;
+}
+
+// Approval Node Data
+export interface ApprovalNodeData extends WorkflowNodeData {
+  domainType: 'approval';
+  resolver: ResolverConfig;
+  availableActions: string[];
+  slaHours?: number;
+  priority?: 'Low' | 'Medium' | 'High' | 'Urgent';
+  fallbackUser?: string;
+  escalation?: {
+    enabled: boolean;
+    maxLevel?: number;
+    type?: 'hierarchy' | 'static' | 'role';
+    user?: string;
+    role?: string;
+  };
+}
+
+// Auto Action Types
+export type AutoActionType =
+  | 'submit_document'
+  | 'cancel_document'
+  | 'update_field'
+  | 'update_status'
+  | 'send_notification'
+  | 'call_api'
+  | 'run_method';
+
+export interface AutoActionNodeData extends WorkflowNodeData {
+  domainType: 'auto_action';
+  actionType: AutoActionType;
+  actionConfig: {
+    // update_field
+    field?: string;
+    value?: unknown;
+    // update_status
+    status?: string;
+    // send_notification
+    notification_type?: 'Email' | 'System';
+    recipients?: string[];
+    subject?: string;
+    message?: string;
+    // call_api
+    url?: string;
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    headers?: Record<string, string>;
+    payload?: Record<string, unknown>;
+    // run_method
+    methodName?: string;
+    args?: Record<string, unknown>;
+  };
+}
+
+// End Node Data
+export interface EndNodeData extends WorkflowNodeData {
+  domainType: 'end';
+  finalStatus?: string;
+}
+
+// Union type for all domain node data
+export type DomainNodeData =
+  | StartNodeData
+  | ThresholdGateNodeData
+  | ClassificationBranchNodeData
+  | ApprovalNodeData
+  | AutoActionNodeData
+  | EndNodeData;
+
+// Domain node colors
+export const DOMAIN_NODE_COLORS: Record<DomainNodeType, string> = {
+  start: '#22c55e',
+  threshold_gate: '#f59e0b',
+  classification_branch: '#8b5cf6',
+  approval: '#3b82f6',
+  auto_action: '#06b6d4',
+  end: '#ef4444',
 } as const;
