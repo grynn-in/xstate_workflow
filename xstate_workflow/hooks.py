@@ -82,7 +82,8 @@ fixtures = [
 doc_events = {
     "*": {
         "on_update": "xstate_workflow.workflow_engine.check_and_trigger",
-        "after_insert": "xstate_workflow.workflow_engine.check_and_trigger"
+        "after_insert": "xstate_workflow.workflow_engine.check_and_trigger",
+        "before_submit": "xstate_workflow.workflow_engine.validate_workflow_state_for_submit"
     }
 }
 
