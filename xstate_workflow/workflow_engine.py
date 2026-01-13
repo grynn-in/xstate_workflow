@@ -1837,6 +1837,87 @@ def evaluate_guard(machine_doc, guard_name: str, context: dict, event: dict) -> 
 # HOOKS AND SCHEDULED TASKS
 # ============================================================================
 
+def validate_workflow_state_for_submit(doc, method=None):
+    """
+    Hook: Validate workflow state before document submission.
+    Blocks submission if workflow state is not approved.
+
+    Called from doc_events before_submit for all DocTypes.
+
+    Args:
+        doc: Frappe document
+        method: Hook method name
+    """
+    # Skip during installation/migration
+    try:
+        if not frappe.db.table_exists("State Machine"):
+            return
+        if not frappe.db.table_exists("Machine Instance"):
+            return
+    except Exception:
+        return
+
+    # Check if this doctype has a workflow attached
+    workflow = frappe.db.get_value(
+        "State Machine",
+        {"attached_doctype": doc.doctype, "is_active": 1},
+        "name"
+    )
+
+    if not workflow:
+        return  # No workflow for this doctype, allow submission
+
+    # Check if there's a machine instance for this document
+    instance = frappe.db.get_value(
+        "Machine Instance",
+        {
+            "reference_doctype": doc.doctype,
+            "reference_name": doc.name
+        },
+        ["current_state", "status"],
+        as_dict=True
+    )
+
+    if not instance:
+        return  # No workflow instance, allow submission
+
+    current_state = instance.get("current_state", "").lower()
+    status = instance.get("status", "")
+
+    # Define states that block submission
+    blocked_states = ["rejected", "cancelled", "denied", "declined"]
+
+    # Define states that allow submission
+    allowed_states = ["approved", "completed", "done", "accepted"]
+
+    # Check if in a blocked state
+    if current_state in blocked_states:
+        frappe.throw(
+            _("Cannot submit {0} {1}: Workflow state is '{2}'. Document was rejected in the approval workflow.").format(
+                doc.doctype, doc.name, instance.get("current_state")
+            ),
+            title=_("Workflow Rejection")
+        )
+
+    # If workflow is active (not final), check if approved
+    if status == "active":
+        frappe.throw(
+            _("Cannot submit {0} {1}: Workflow approval is pending. Current state: '{2}'").format(
+                doc.doctype, doc.name, instance.get("current_state")
+            ),
+            title=_("Pending Approval")
+        )
+
+    # If status is final but not in allowed states, block
+    if status == "final" and current_state not in allowed_states:
+        frappe.throw(
+            _("Cannot submit {0} {1}: Workflow ended in state '{2}' which does not allow submission.").format(
+                doc.doctype, doc.name, instance.get("current_state")
+            ),
+            title=_("Workflow State Invalid")
+        )
+
+
 def check_and_trigger(doc, method=None):
     """
     Hook: Auto-trigger workflow events on document updates.
