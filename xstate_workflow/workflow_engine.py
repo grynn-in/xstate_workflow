@@ -34,6 +34,10 @@ def trigger_event(doctype: str, docname: str, event: str, data: str | None = Non
     Returns:
         dict with job_id for tracking
     """
+    # Permission check - user must have write access to the document
+    if not frappe.has_permission(doctype, "write", docname):
+        frappe.throw(_("No permission to modify {0} {1}").format(doctype, docname), frappe.PermissionError)
+
     input_data = json.loads(data) if data else {}
 
     instance_name = get_or_create_instance(doctype, docname)
@@ -70,6 +74,10 @@ def trigger_event_sync(doctype: str, docname: str, event: str, data: str | None 
     Returns:
         dict with transition result
     """
+    # Permission check - user must have write access to the document
+    if not frappe.has_permission(doctype, "write", docname):
+        frappe.throw(_("No permission to modify {0} {1}").format(doctype, docname), frappe.PermissionError)
+
     if isinstance(data, str):
         input_data = json.loads(data) if data else {}
     else:
@@ -92,6 +100,10 @@ def get_machine_state(doctype: str, docname: str) -> dict:
     Returns:
         dict with current state, context, and available events
     """
+    # Permission check - user must have read access to the document
+    if not frappe.has_permission(doctype, "read", docname):
+        frappe.throw(_("No permission to access {0} {1}").format(doctype, docname), frappe.PermissionError)
+
     instance = get_instance_for_doc(doctype, docname)
 
     if not instance:
@@ -133,6 +145,10 @@ def get_machine_state_with_history(doctype: str, docname: str) -> dict:
     Returns:
         dict with current state, context, available events, and transition history
     """
+    # Permission check - user must have read access to the document
+    if not frappe.has_permission(doctype, "read", docname):
+        frappe.throw(_("No permission to access {0} {1}").format(doctype, docname), frappe.PermissionError)
+
     instance = get_instance_for_doc(doctype, docname)
 
     if not instance:
@@ -191,6 +207,15 @@ def save_machine(machine_id: str, json_config: str, title: str = "",
     Returns:
         dict with saved machine name
     """
+    # Permission check - user must have permission to create/edit State Machine
+    existing = frappe.db.exists("State Machine", machine_id)
+    if existing:
+        if not frappe.has_permission("State Machine", "write", machine_id):
+            frappe.throw(_("No permission to modify State Machine"), frappe.PermissionError)
+    else:
+        if not frappe.has_permission("State Machine", "create"):
+            frappe.throw(_("No permission to create State Machine"), frappe.PermissionError)
+
     existing = frappe.db.exists("State Machine", machine_id)
 
     if existing:
@@ -237,6 +262,10 @@ def get_machine(machine_id: str) -> dict:
     if not frappe.db.exists("State Machine", machine_id):
         frappe.throw(_("State Machine '{0}' not found").format(machine_id))
 
+    # Permission check - user must have read access to State Machine
+    if not frappe.has_permission("State Machine", "read", machine_id):
+        frappe.throw(_("No permission to access State Machine"), frappe.PermissionError)
+
     machine = frappe.get_doc("State Machine", machine_id)
 
     return {
@@ -266,6 +295,10 @@ def list_machines(attached_to: str = None) -> list:
     Returns:
         list of machine summaries
     """
+    # Permission check - user must have read access to State Machine doctype
+    if not frappe.has_permission("State Machine", "read"):
+        frappe.throw(_("No permission to access State Machines"), frappe.PermissionError)
+
     filters = {"is_active": 1}
     if attached_to:
         filters["attached_doctype"] = attached_to
@@ -359,6 +392,10 @@ def reset_instance(doctype: str, docname: str) -> dict:
     Returns:
         dict with reset result
     """
+    # Permission check - user must have write access to the document
+    if not frappe.has_permission(doctype, "write", docname):
+        frappe.throw(_("No permission to modify {0} {1}").format(doctype, docname), frappe.PermissionError)
+
     instance = get_instance_for_doc(doctype, docname)
 
     if not instance:
