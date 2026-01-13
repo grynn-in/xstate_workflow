@@ -25,6 +25,9 @@ def get_context(context):
     # machine_id, doctype, docname are extracted from URL via JavaScript in the template
     context.title = _("Workflow Viewer")
 
+    # Add CSRF token for API calls
+    context.csrf_token = frappe.sessions.get_csrf_token()
+
     # Add meta tags
     context.no_cache = 1
     context.no_breadcrumbs = 1
