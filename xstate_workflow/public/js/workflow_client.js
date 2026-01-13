@@ -112,39 +112,180 @@
   }
 
   /**
-   * Add workflow section to form dashboard
+   * Add workflow as a separate tab on the form
    */
   function add_workflow_tab(frm, state) {
-    // Remove existing section if any
-    $('.xstate-workflow-section').remove();
+    // Remove existing tab if any
+    $('.xstate-workflow-tab').remove();
+    $('.xstate-workflow-pane').remove();
 
     var machine_name = state.machine || '';
     var viewer_url = machine_name ? '/xstate-viewer/' + encodeURIComponent(machine_name) +
       '?doctype=' + encodeURIComponent(frm.doc.doctype) +
       '&docname=' + encodeURIComponent(frm.doc.name) : '';
 
+    // Find the tab navigation
+    var $tabNav = frm.$wrapper.find('.form-tabs .nav-tabs, .form-tabs > ul');
+    var $tabContent = frm.$wrapper.find('.form-tab-content');
+
+    if (!$tabNav.length) {
+      console.log('XState Workflow: No tabs found, falling back to section');
+      add_workflow_section_fallback(frm, state, viewer_url);
+      return;
+    }
+
+    // Create tab button
+    var tabId = 'workflow-tab-' + frm.doc.name.replace(/[^a-zA-Z0-9]/g, '_');
+    var $tab = $('<li class="nav-item xstate-workflow-tab">' +
+      '<a class="nav-link" data-toggle="tab" href="#' + tabId + '">' +
+        '<span class="tab-label">⚡ Workflow</span>' +
+      '</a>' +
+    '</li>');
+
+    // Create tab content pane
     var state_color = get_state_color(state.current_state);
     var state_display = state.current_state.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
 
-    var html = '<div class="xstate-workflow-section" style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin: 10px 15px;">' +
-      '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">' +
+    var paneHtml = '<div class="tab-pane xstate-workflow-pane" id="' + tabId + '" style="padding: 20px;">' +
+      '<div class="workflow-tab-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #e5e5e5;">' +
         '<div>' +
-          '<strong style="font-size: 14px;">⚡ Workflow</strong>' +
-          '<span class="indicator-pill ' + state_color + '" style="margin-left: 10px;">' + state_display + '</span>' +
+          '<h4 style="margin: 0 0 8px 0;">' + __('Workflow Status') + '</h4>' +
+          '<span class="indicator-pill ' + state_color + '" style="font-size: 14px; padding: 6px 14px;">' + state_display + '</span>' +
+          '<span class="text-muted" style="margin-left: 10px; font-size: 13px;">(' + (state.status || 'active') + ')</span>' +
         '</div>' +
-        (viewer_url ? '<a href="' + viewer_url + '" target="_blank" class="btn btn-xs btn-default">View Diagram</a>' : '') +
+        (viewer_url ? '<a href="' + viewer_url + '" target="_blank" class="btn btn-sm btn-primary">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>' +
+          __('View Diagram') +
+        '</a>' : '') +
       '</div>' +
-      '<div class="text-muted" style="font-size: 12px;">' +
-        'Status: ' + (state.status || 'active') +
-        (state.last_event ? ' | Last: ' + state.last_event : '') +
+      '<div class="workflow-actions-section" style="margin-bottom: 25px;">' +
+        '<h5 style="margin-bottom: 12px; color: #374151; font-weight: 600;">' + __('Available Actions') + '</h5>' +
+        '<div id="workflow-actions-' + tabId + '"></div>' +
+      '</div>' +
+      '<div class="workflow-history-section">' +
+        '<h5 style="margin-bottom: 12px; color: #374151; font-weight: 600;">' + __('Transition History') + '</h5>' +
+        '<div id="workflow-history-' + tabId + '">' +
+          '<div class="text-muted">' + __('Loading...') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="workflow-links" style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #e5e5e5;">' +
+        '<a href="/my-approvals" class="text-muted" style="margin-right: 20px;">' + __('📋 My Approvals') + '</a>' +
+        (machine_name ? '<a href="/app/state-machine/' + encodeURIComponent(machine_name) + '" class="text-muted">' + __('⚙️ Workflow Settings') + '</a>' : '') +
       '</div>' +
     '</div>';
 
-    // Direct DOM append to form-dashboard
-    $('.form-dashboard').append(html);
-    frm.workflow_tab_added = true;
+    // Add tab and pane to DOM
+    $tabNav.append($tab);
+    $tabContent.append(paneHtml);
 
-    console.log('XState Workflow: Section added to dashboard');
+    frm.workflow_tab_added = true;
+    console.log('XState Workflow: Tab added to form');
+
+    // Render action buttons
+    render_workflow_actions_in_tab(frm, state, tabId);
+
+    // Load history
+    load_workflow_history(frm, tabId);
+  }
+
+  /**
+   * Fallback when tabs don't exist - add as section at bottom
+   */
+  function add_workflow_section_fallback(frm, state, viewer_url) {
+    var state_color = get_state_color(state.current_state);
+    var state_display = state.current_state.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+
+    var html = '<div class="xstate-workflow-section" style="margin: 20px 15px; padding: 20px; background: white; border: 1px solid #e5e5e5; border-radius: 8px;">' +
+      '<h5 style="margin: 0 0 15px 0; font-weight: 600; color: #374151;">⚡ Workflow</h5>' +
+      '<div style="display: flex; justify-content: space-between; align-items: center;">' +
+        '<div style="display: flex; align-items: center; gap: 12px;">' +
+          '<span class="indicator-pill ' + state_color + '">' + state_display + '</span>' +
+          '<span class="text-muted" style="font-size: 12px;">Status: ' + (state.status || 'active') + '</span>' +
+        '</div>' +
+        (viewer_url ? '<a href="' + viewer_url + '" target="_blank" class="btn btn-xs btn-default">View Diagram</a>' : '') +
+      '</div>' +
+    '</div>';
+
+    frm.$wrapper.find('.form-layout, .form-page').first().append(html);
+    frm.workflow_tab_added = true;
+  }
+
+  /**
+   * Render workflow action buttons in tab
+   */
+  function render_workflow_actions_in_tab(frm, state, tabId) {
+    var $container = $('#workflow-actions-' + tabId);
+    if (!$container.length) return;
+
+    var events = state.available_events || [];
+    var enabled_events = events.filter(function(e) { return e.enabled; });
+
+    if (enabled_events.length === 0) {
+      $container.html('<div class="text-muted">' + __('No actions available in current state') + '</div>');
+      return;
+    }
+
+    var html = '<div style="display: flex; gap: 10px; flex-wrap: wrap;">';
+    enabled_events.forEach(function(evt) {
+      var btn_class = get_button_class(evt.event);
+      var icon = get_event_icon(evt.event);
+      html += '<button class="btn ' + btn_class + ' workflow-action-btn" data-event="' + evt.event + '" style="padding: 8px 16px;">' +
+        icon + ' ' + format_event_name(evt.event) +
+      '</button>';
+    });
+    html += '</div>';
+
+    $container.html(html);
+
+    // Bind click events
+    $container.find('.workflow-action-btn').on('click', function() {
+      var event = $(this).data('event');
+      handle_workflow_action(frm, event);
+    });
+  }
+
+  /**
+   * Load workflow history for tab
+   */
+  function load_workflow_history(frm, tabId) {
+    var $container = $('#workflow-history-' + tabId);
+    if (!$container.length) return;
+
+    frappe.xcall('xstate_workflow.api.workflow.get_transition_history', {
+      doctype: frm.doc.doctype,
+      docname: frm.doc.name,
+      limit: 10
+    }).then(function(history) {
+      if (!history || history.length === 0) {
+        $container.html('<div class="text-muted">' + __('No transitions yet') + '</div>');
+        return;
+      }
+
+      var html = '<div class="workflow-timeline" style="position: relative;">';
+      history.forEach(function(entry, idx) {
+        var isFirst = idx === 0;
+        html += '<div class="timeline-item" style="display: flex; gap: 12px; padding-bottom: 15px; ' + (isFirst ? '' : 'opacity: 0.8;') + '">' +
+          '<div class="timeline-dot" style="width: 10px; height: 10px; border-radius: 50%; background: ' + (isFirst ? '#3b82f6' : '#9ca3af') + '; margin-top: 5px; flex-shrink: 0;"></div>' +
+          '<div class="timeline-content">' +
+            '<div style="font-weight: 500;">' +
+              '<span style="color: #6b7280;">' + (entry.from_state || 'Start').replace(/_/g, ' ') + '</span>' +
+              ' → ' +
+              '<span style="color: #1f2937;">' + entry.to_state.replace(/_/g, ' ') + '</span>' +
+            '</div>' +
+            '<div style="font-size: 12px; color: #6b7280; margin-top: 3px;">' +
+              '<span style="background: #e0e7ff; color: #4338ca; padding: 2px 8px; border-radius: 4px; font-size: 11px;">' + entry.event + '</span>' +
+              (entry.timestamp ? ' · ' + frappe.datetime.prettyDate(entry.timestamp) : '') +
+              (entry.user ? ' · ' + entry.user : '') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+
+      $container.html(html);
+    }).catch(function() {
+      $container.html('<div class="text-muted">' + __('Unable to load history') + '</div>');
+    });
   }
 
   /**
@@ -745,31 +886,47 @@
 
   // ===== Event Listeners =====
 
-  // Check and add workflow section to current form
-  function check_and_add_workflow() {
-    if (typeof cur_frm === 'undefined' || !cur_frm || !cur_frm.doc || !cur_frm.doc.name) return;
+  // Track last checked form to avoid duplicate checks
+  var last_checked_doc = null;
+  var poll_count = 0;
+
+  // Check for workflow section periodically
+  function check_workflow_section() {
+    poll_count++;
+
+    // Log every 10th poll to show it's running
+    if (poll_count % 10 === 1) {
+      console.log('XState Workflow: Poll #' + poll_count,
+        'cur_frm:', typeof cur_frm !== 'undefined' ? (cur_frm?.doc?.doctype || 'no doc') : 'undefined',
+        'dashboard:', $('.form-dashboard').length);
+    }
+
+    if (typeof cur_frm === 'undefined' || !cur_frm || !cur_frm.doc) return;
     if (cur_frm.doc.__islocal) return;
-    if (cur_frm.workflow_section_added) return;
+
+    var doc_key = cur_frm.doc.doctype + ':' + cur_frm.doc.name;
+    if (last_checked_doc === doc_key && cur_frm.workflow_section_added) return;
 
     var attached_doctypes = frappe.boot.xstate_workflow?.attached_doctypes || [];
-    if (attached_doctypes.includes(cur_frm.doc.doctype)) {
+
+    console.log('XState Workflow: Checking', cur_frm.doc.doctype, 'against', attached_doctypes);
+
+    if (!attached_doctypes.includes(cur_frm.doc.doctype)) return;
+
+    // Check if form-dashboard exists and section not yet added
+    if ($('.form-dashboard').length && !cur_frm.workflow_section_added) {
       console.log('XState Workflow: Adding section to', cur_frm.doc.doctype, cur_frm.doc.name);
+      last_checked_doc = doc_key;
       add_workflow_section(cur_frm);
     }
   }
 
-  // Use frappe.router to detect page changes
-  frappe.router.on('change', function() {
-    // Wait for form to be ready
-    setTimeout(check_and_add_workflow, 500);
-    setTimeout(check_and_add_workflow, 1500);
-  });
+  // Poll every 500ms
+  setInterval(check_workflow_section, 500);
+  console.log('XState Workflow: Polling started');
 
-  // Also check on initial load and periodically
-  $(function() {
-    setTimeout(check_and_add_workflow, 1000);
-    setTimeout(check_and_add_workflow, 2000);
-  });
+  // Also check on page changes
+  $(document).on('page-change', check_workflow_section);
 
   // Listen for realtime workflow updates
   frappe.realtime.on('workflow_transition', function (data) {
@@ -803,5 +960,5 @@
     });
   }
 
-  console.log('XState Workflow: Client initialized');
+  console.log('XState Workflow: Client initialized v2.0 - ' + new Date().toISOString());
 })();

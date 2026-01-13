@@ -251,16 +251,41 @@
     '<a href="/app/' + doctype.toLowerCase().replace(/ /g, '-') + '/' + encodeURIComponent(docname) + '">' +
     doctype + ': ' + docname + '</a>';
 
+  // Get CSRF token from various sources
+  function getCsrfToken() {
+    // Try frappe global first
+    if (typeof frappe !== 'undefined' && frappe.csrf_token) {
+      return frappe.csrf_token;
+    }
+    // Try meta tag
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta) {
+      return meta.getAttribute('content');
+    }
+    // Try cookie
+    var match = document.cookie.match(/csrf_token=([^;]+)/);
+    if (match) {
+      return decodeURIComponent(match[1]);
+    }
+    return '';
+  }
+
   // Helper for API calls (works on both desk and website pages)
   function apiCall(method, args) {
     return fetch('/api/method/' + method, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Frappe-CSRF-Token': frappe.csrf_token || ''
+        'X-Frappe-CSRF-Token': getCsrfToken()
       },
-      body: JSON.stringify(args)
-    }).then(function(r) { return r.json(); });
+      body: JSON.stringify(args),
+      credentials: 'include'
+    }).then(function(r) {
+      if (!r.ok) {
+        throw new Error('HTTP ' + r.status);
+      }
+      return r.json();
+    });
   }
 
   // Load workflow state
