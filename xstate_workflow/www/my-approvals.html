@@ -5,8 +5,15 @@
 {% block page_content %}
 <div class="my-approvals-page">
     <div class="page-header">
-        <h1>My Approvals</h1>
-        <p class="text-muted">Review and action your pending approval tasks</p>
+        <div class="d-flex justify-content-between align-items-start">
+            <div>
+                <h1>My Approvals</h1>
+                <p class="text-muted">Review and action your pending approval tasks</p>
+            </div>
+            <div class="user-info-card" id="user-info">
+                <!-- Populated by JS -->
+            </div>
+        </div>
     </div>
 
     <!-- Stats Cards -->
@@ -87,12 +94,12 @@
 </div>
 
 <!-- Reassign Modal -->
-<div class="modal fade" id="reassignModal" tabindex="-1">
+<div class="modal fade" id="reassignModal" tabindex="-1" style="display: none;">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Reassign Task</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" onclick="closeReassignModal()"></button>
             </div>
             <div class="modal-body">
                 <div class="mb-3">
@@ -107,7 +114,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-secondary" onclick="closeReassignModal()">Cancel</button>
                 <button class="btn btn-primary" onclick="submitReassign()">Reassign</button>
             </div>
         </div>
@@ -145,6 +152,86 @@
 
 .page-header h1 {
     margin-bottom: 5px;
+}
+
+.user-info-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    text-align: right;
+    min-width: 250px;
+}
+
+.user-info-card .user-name {
+    font-weight: 600;
+    color: #1e293b;
+    margin-bottom: 4px;
+}
+
+.user-info-card .user-roles {
+    font-size: 12px;
+    color: #64748b;
+}
+
+.user-info-card .user-roles .role-badge {
+    display: inline-block;
+    background: #e0e7ff;
+    color: #4338ca;
+    padding: 2px 8px;
+    border-radius: 12px;
+    margin: 2px;
+    font-size: 11px;
+}
+
+.task-doc-details {
+    background: #f8fafc;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 10px 0;
+    border: 1px solid #e2e8f0;
+}
+
+.task-doc-details .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 16px;
+}
+
+.task-doc-details .detail-item {
+    font-size: 12px;
+}
+
+.task-doc-details .detail-item.last-approver {
+    grid-column: span 2;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.task-doc-details .detail-label {
+    color: #64748b;
+    margin-right: 4px;
+}
+
+.task-doc-details .detail-value {
+    color: #1e293b;
+    font-weight: 500;
+}
+
+.access-reason {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 4px;
+}
+
+.access-reason .access-badge {
+    display: inline-block;
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
 }
 
 .stat-card {
@@ -322,6 +409,17 @@
     margin-bottom: 16px;
 }
 
+.doc-link {
+    color: #2490ef;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.doc-link:hover {
+    color: #1a73e8;
+    text-decoration: underline;
+}
+
 .role-member-item {
     padding: 8px 0;
     border-bottom: 1px solid #e5e7eb;
@@ -329,6 +427,20 @@
 
 .role-member-item:last-child {
     border-bottom: none;
+}
+
+/* Modal styles for vanilla JS */
+.modal.show {
+    display: block !important;
+    background: rgba(0,0,0,0.5);
+}
+
+.modal.show .modal-dialog {
+    margin-top: 100px;
+}
+
+body.modal-open {
+    overflow: hidden;
 }
 </style>
 
@@ -342,8 +454,31 @@ frappe.ready(function() {
     const currentUser = frappe.session.user;
 
     // Initialize
+    loadUserInfo();
     loadStats();
     loadTasks();
+
+    function loadUserInfo() {
+        frappe.call({
+            method: 'xstate_workflow.api.approval.get_current_user_info',
+            callback: function(r) {
+                if (r.message) {
+                    const userInfo = document.getElementById('user-info');
+                    const relevantRoles = r.message.workflow_roles || [];
+                    userInfo.innerHTML = `
+                        <div class="user-name">${r.message.full_name || r.message.user}</div>
+                        <div class="user-email text-muted" style="font-size: 12px;">${r.message.user}</div>
+                        ${relevantRoles.length > 0 ? `
+                            <div class="user-roles mt-2">
+                                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">Approval Roles:</div>
+                                ${relevantRoles.map(role => `<span class="role-badge">${role}</span>`).join('')}
+                            </div>
+                        ` : ''}
+                    `;
+                }
+            }
+        });
+    }
 
     // Filter buttons
     document.querySelectorAll('.approval-filters .btn').forEach(btn => {
@@ -409,8 +544,10 @@ frappe.ready(function() {
 
         container.innerHTML = tasks.map(task => {
             const isPending = task.status === 'Pending';
+            const isCompleted = task.status === 'Completed';
             const isRoleBased = !!task.assigned_role;
             const isAssignedToMe = task.assigned_to === currentUser;
+            const wasCompletedByMe = task.completed_by === currentUser;
 
             return `
             <div class="approval-task-card ${task.is_overdue ? 'overdue' : ''}" data-task="${task.name}">
@@ -419,8 +556,56 @@ frappe.ready(function() {
                     <span class="task-priority ${(task.priority || 'medium').toLowerCase()}">${task.priority || 'Medium'}</span>
                 </div>
                 <div class="task-meta">
-                    <span><strong>Document:</strong> ${task.reference_doctype} - ${task.reference_name}</span>
+                    <span><strong>Document:</strong>
+                        <a href="/app/${task.reference_doctype.toLowerCase().replace(/ /g, '-')}/${task.reference_name}"
+                           target="_blank"
+                           class="doc-link"
+                           onclick="event.stopPropagation()">
+                            ${task.reference_doctype}: ${task.reference_name}
+                        </a>
+                    </span>
                     ${task.due_date ? `<span><strong>Due:</strong> ${frappe.datetime.str_to_user(task.due_date)}</span>` : ''}
+                </div>
+
+                <div class="task-doc-details">
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <span class="detail-label">Created by:</span>
+                            <span class="detail-value">${task.doc_owner_name || task.doc_owner || '-'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Created:</span>
+                            <span class="detail-value">${task.doc_created ? frappe.datetime.str_to_user(task.doc_created) : '-'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Last modified:</span>
+                            <span class="detail-value">${task.doc_modified ? frappe.datetime.str_to_user(task.doc_modified) : '-'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Submitted to workflow:</span>
+                            <span class="detail-value">${task.workflow_submitted ? frappe.datetime.str_to_user(task.workflow_submitted) : '-'}</span>
+                        </div>
+                        ${task.last_approver ? `
+                        <div class="detail-item last-approver">
+                            <span class="detail-label">Previous action:</span>
+                            <span class="detail-value">
+                                <span class="badge bg-${task.last_approver.action_taken === 'Approve' ? 'success' : task.last_approver.action_taken === 'Reject' ? 'danger' : 'secondary'}">${task.last_approver.action_taken}</span>
+                                by ${task.last_approver.completed_by_name || task.last_approver.completed_by}
+                                <span class="text-muted">(${frappe.datetime.prettyDate(task.last_approver.completed_at)})</span>
+                            </span>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <div class="access-reason">
+                    <strong>Your access:</strong>
+                    ${isCompleted ?
+                      (wasCompletedByMe ? `<span class="access-badge">Actioned by you</span>` :
+                       `<span class="access-badge">Actioned by ${task.completed_by_name || task.completed_by}</span>`) :
+                      isAssignedToMe ? `<span class="access-badge">Awaiting your action</span>` :
+                      isRoleBased ? `<span class="access-badge">Via role: ${task.assigned_role}</span>` :
+                      `<span class="access-badge">System Manager</span>`}
                 </div>
 
                 ${isRoleBased ? `
@@ -437,20 +622,24 @@ frappe.ready(function() {
                     <!-- Action buttons for pending tasks -->
                     <div class="task-actions-inline" id="actions-${task.name}">
                         <div class="action-buttons" id="buttons-${task.name}">
-                            ${(task.available_actions || ['Approve', 'Reject']).map(action => `
-                                <button class="btn btn-sm ${getActionButtonClass(action)}"
-                                        onclick="showInlineCommentBox('${task.name}', '${action}', event)">
-                                    ${action}
-                                </button>
-                            `).join('')}
-                            <button class="btn btn-sm btn-outline-secondary" onclick="showReassignModal('${task.name}', event)">
-                                Reassign
-                            </button>
                             ${isRoleBased && !task.assigned_to ? `
-                                <button class="btn btn-sm btn-outline-primary" onclick="claimTask('${task.name}', event)">
-                                    Claim
+                                <!-- Role-based unclaimed: Only show Claim button -->
+                                <button class="btn btn-sm btn-primary" onclick="claimTask('${task.name}', event)">
+                                    Claim Task
                                 </button>
-                            ` : ''}
+                                <span class="text-muted ms-2">Claim to approve or reject</span>
+                            ` : `
+                                <!-- Claimed or direct assignment: Show action buttons -->
+                                ${(task.available_actions || ['Approve', 'Reject']).map(action => `
+                                    <button class="btn btn-sm ${getActionButtonClass(action)}"
+                                            onclick="showInlineCommentBox('${task.name}', '${action}', event)">
+                                        ${action}
+                                    </button>
+                                `).join('')}
+                                <button class="btn btn-sm btn-outline-secondary" onclick="showReassignModal('${task.name}', event)">
+                                    Reassign
+                                </button>
+                            `}
                         </div>
                         <div class="comment-box" id="commentbox-${task.name}" style="display:none;">
                             <div class="mb-2"><strong id="action-label-${task.name}"></strong></div>
@@ -706,12 +895,12 @@ frappe.ready(function() {
         // Legacy - now handled in dialog
     };
 
-    // Reassign functions
+    // Reassign functions - using vanilla JS modal (frappe.ui.Dialog not available in www pages)
     window.showReassignModal = function(taskName, event) {
         if (event) event.stopPropagation();
         reassignTaskName = taskName;
 
-        // Fetch users and show Frappe dialog
+        // Fetch users and populate dropdown
         frappe.call({
             method: 'frappe.client.get_list',
             args: {
@@ -721,58 +910,59 @@ frappe.ready(function() {
                 limit_page_length: 0
             },
             callback: function(r) {
-                const userOptions = r.message.map(u => ({
-                    label: u.full_name || u.name,
-                    value: u.name
-                }));
+                if (r.message) {
+                    const select = document.getElementById('reassign-user');
+                    select.innerHTML = r.message.map(u =>
+                        `<option value="${u.name}">${u.full_name || u.name}</option>`
+                    ).join('');
 
-                const d = new frappe.ui.Dialog({
-                    title: 'Reassign Task',
-                    fields: [
-                        {
-                            label: 'Assign To',
-                            fieldname: 'new_user',
-                            fieldtype: 'Select',
-                            options: userOptions.map(u => u.value).join('\n'),
-                            reqd: 1
-                        },
-                        {
-                            label: 'Reason (optional)',
-                            fieldname: 'reason',
-                            fieldtype: 'Small Text'
-                        }
-                    ],
-                    primary_action_label: 'Reassign',
-                    primary_action(values) {
-                        frappe.call({
-                            method: 'xstate_workflow.api.approval.reassign_task',
-                            args: {
-                                task_name: reassignTaskName,
-                                new_user: values.new_user,
-                                reason: values.reason
-                            },
-                            callback: function(r) {
-                                if (!r.exc) {
-                                    d.hide();
-                                    frappe.msgprint({
-                                        title: 'Success',
-                                        indicator: 'green',
-                                        message: 'Task reassigned successfully'
-                                    });
-                                    reassignTaskName = null;
-                                    loadTasks();
-                                }
-                            }
-                        });
-                    }
-                });
-                d.show();
+                    // Clear previous reason
+                    document.getElementById('reassign-reason').value = '';
+
+                    // Show modal using vanilla JS
+                    document.getElementById('reassignModal').style.display = 'block';
+                    document.getElementById('reassignModal').classList.add('show');
+                    document.body.classList.add('modal-open');
+                }
             }
         });
     };
 
+    window.closeReassignModal = function() {
+        document.getElementById('reassignModal').style.display = 'none';
+        document.getElementById('reassignModal').classList.remove('show');
+        document.body.classList.remove('modal-open');
+        reassignTaskName = null;
+    };
+
     window.submitReassign = function() {
-        // Legacy function - now handled in dialog
+        const newUser = document.getElementById('reassign-user').value;
+        const reason = document.getElementById('reassign-reason').value;
+
+        if (!newUser) {
+            frappe.msgprint('Please select a user');
+            return;
+        }
+
+        frappe.call({
+            method: 'xstate_workflow.api.approval.reassign_task',
+            args: {
+                task_name: reassignTaskName,
+                new_user: newUser,
+                reason: reason
+            },
+            callback: function(r) {
+                if (!r.exc) {
+                    closeReassignModal();
+                    frappe.msgprint({
+                        title: 'Success',
+                        indicator: 'green',
+                        message: 'Task reassigned successfully'
+                    });
+                    loadTasks();
+                }
+            }
+        });
     };
 
     // Claim task function

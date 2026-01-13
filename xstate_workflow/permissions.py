@@ -38,11 +38,28 @@ def has_permission(doc, ptype="read", user=None):
         return True
 
     # Check if user has access to the referenced document
-    if doc.ref_doctype and doc.ref_docname:
+    if doc.reference_doctype and doc.reference_name:
         try:
-            ref_doc = frappe.get_doc(doc.ref_doctype, doc.ref_docname)
+            ref_doc = frappe.get_doc(doc.reference_doctype, doc.reference_name)
             return ref_doc.has_permission(ptype)
         except frappe.PermissionError:
             return False
+
+    # Also allow access if user is assigned to an approval task for this instance
+    if frappe.db.exists("Approval Task", {
+        "workflow_instance": doc.name,
+        "status": "Pending",
+        "assigned_to": user
+    }):
+        return True
+
+    # Check role-based assignment
+    user_roles = frappe.get_roles(user)
+    if frappe.db.exists("Approval Task", {
+        "workflow_instance": doc.name,
+        "status": "Pending",
+        "assigned_role": ["in", user_roles]
+    }):
+        return True
 
     return False

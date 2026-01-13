@@ -197,7 +197,132 @@
         __('Last action') + ': ' + format_event_name(state.last_event) +
         (state.last_transition_at ? ' (' + frappe.datetime.prettyDate(state.last_transition_at) + ')' : '') +
         '</div>' : '') +
+      '<div class="workflow-approvals-link mt-2">' +
+      '<a href="/my-approvals" class="text-muted small">' +
+      '<span>📋</span> ' + __('View My Approvals') +
+      '</a>' +
+      '</div>' +
       '</div>';
+  }
+
+  /**
+   * Add approval task section to form showing pending tasks for this document
+   */
+  function add_approval_task_section(frm) {
+    if (frm.approval_section_added) return;
+
+    frappe.xcall('xstate_workflow.api.approval.get_document_approval_tasks', {
+      doctype: frm.doc.doctype,
+      docname: frm.doc.name
+    }).then(function(tasks) {
+      if (!tasks || tasks.length === 0) return;
+
+      frm.approval_section_added = true;
+
+      var pending_tasks = tasks.filter(function(t) { return t.status === 'Pending'; });
+      var html = render_approval_tasks_section(pending_tasks, frm);
+
+      frm.dashboard.add_section($(html), __('Pending Approvals'));
+
+      // Bind action buttons
+      frm.dashboard.wrapper.find('.approval-action-btn').on('click', function() {
+        var taskName = $(this).data('task');
+        var action = $(this).data('action');
+        handle_approval_action(frm, taskName, action);
+      });
+    }).catch(function(err) {
+      console.log('No approval tasks:', err);
+    });
+  }
+
+  /**
+   * Render approval tasks section HTML
+   */
+  function render_approval_tasks_section(tasks, frm) {
+    if (!tasks || tasks.length === 0) {
+      return '<div class="text-muted small">' + __('No pending approvals for this document') + '</div>';
+    }
+
+    var html = '<div class="approval-tasks-section">';
+
+    tasks.forEach(function(task) {
+      var actions_html = '';
+      var available_actions = task.available_actions || ['Approve', 'Reject'];
+
+      // Check if current user can action this task
+      var can_action = task.can_action;
+
+      if (can_action) {
+        available_actions.forEach(function(action) {
+          var btn_class = action.toLowerCase() === 'approve' ? 'btn-success' :
+                         action.toLowerCase() === 'reject' ? 'btn-danger' : 'btn-secondary';
+          actions_html += '<button class="btn btn-sm ' + btn_class + ' approval-action-btn" ' +
+            'data-task="' + task.name + '" data-action="' + action + '">' +
+            action + '</button> ';
+        });
+      }
+
+      html += '<div class="approval-task-item" style="padding: 8px 0; border-bottom: 1px solid #eee;">' +
+        '<div class="d-flex justify-content-between align-items-center">' +
+        '<div>' +
+        '<strong>' + (task.node_label || task.node_id) + '</strong>' +
+        '<div class="text-muted small">' +
+        (task.assigned_to ? __('Assigned to: {0}', [task.assigned_to]) :
+         task.assigned_role ? __('Assigned to role: {0}', [task.assigned_role]) : '') +
+        '</div>' +
+        '</div>' +
+        '<div class="approval-task-actions">' + actions_html + '</div>' +
+        '</div>' +
+        '</div>';
+    });
+
+    html += '<div class="mt-2"><a href="/my-approvals" class="small">' + __('View all approvals →') + '</a></div>';
+    html += '</div>';
+
+    return html;
+  }
+
+  /**
+   * Handle approval action from form
+   */
+  function handle_approval_action(frm, taskName, action) {
+    var d = new frappe.ui.Dialog({
+      title: action + ' - ' + __('Approval Task'),
+      fields: [
+        {
+          fieldname: 'comments',
+          fieldtype: 'Small Text',
+          label: __('Comments (optional)')
+        }
+      ],
+      primary_action_label: action,
+      primary_action: function(values) {
+        d.hide();
+        frappe.dom.freeze(__('Processing...'));
+
+        frappe.xcall('xstate_workflow.api.approval.complete_approval_task', {
+          task_name: taskName,
+          action: action,
+          comments: values.comments || ''
+        }).then(function(result) {
+          frappe.dom.unfreeze();
+          frappe.show_alert({
+            message: __('Task {0}d successfully', [action.toLowerCase()]),
+            indicator: 'green'
+          }, 3);
+          frm.reload_doc();
+        }).catch(function(err) {
+          frappe.dom.unfreeze();
+          frappe.msgprint({
+            title: __('Error'),
+            message: err.message || __('Failed to complete task'),
+            indicator: 'red'
+          });
+        });
+      }
+    });
+
+    d.show();
   }
 
   /**
@@ -337,6 +462,7 @@
     if (attached_doctypes.includes(frm.doc.doctype)) {
       setTimeout(function () {
         add_workflow_section(frm);
+        add_approval_task_section(frm);
       }, 100);
     }
   });

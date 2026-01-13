@@ -17,11 +17,48 @@ def boot_session(bootinfo):
     if frappe.session.user == "Guest":
         return
 
+    active_workflows = get_active_workflows()
+
     # Add active workflows info
     bootinfo.xstate_workflow = {
         "has_workflow_permission": has_workflow_permission(),
-        "active_workflows": get_active_workflows()
+        "is_workflow_manager": has_workflow_permission(),
+        "active_workflows": active_workflows,
+        "attached_doctypes": [w.get("attached_doctype") for w in active_workflows if w.get("attached_doctype")],
+        "pending_approvals_count": get_pending_approvals_count()
     }
+
+
+def get_pending_approvals_count():
+    """Get count of pending approvals for current user."""
+    try:
+        if not frappe.db.table_exists("Approval Task"):
+            return 0
+
+        user = frappe.session.user
+        user_roles = frappe.get_roles(user)
+
+        # Count direct assignments
+        direct_count = frappe.db.count(
+            "Approval Task",
+            {"assigned_to": user, "status": "Pending"}
+        )
+
+        # Count role-based assignments
+        role_count = 0
+        if user_roles:
+            role_count = frappe.db.count(
+                "Approval Task",
+                {
+                    "assigned_role": ["in", user_roles],
+                    "status": "Pending",
+                    "assigned_to": ["is", "not set"]
+                }
+            )
+
+        return direct_count + role_count
+    except Exception:
+        return 0
 
 
 def has_workflow_permission():

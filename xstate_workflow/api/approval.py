@@ -151,12 +151,29 @@ def get_task_details(task_name: str) -> dict:
     task = frappe.get_doc("Approval Task", task_name)
 
     # Get reference document details
+    # Use ignore_permissions since user is assigned to this approval task
     ref_doc = None
     if task.reference_doctype and task.reference_name:
         try:
             ref_doc = frappe.get_doc(task.reference_doctype, task.reference_name)
-        except frappe.DoesNotExistError:
-            pass
+        except (frappe.DoesNotExistError, frappe.PermissionError):
+            # Fall back to db.get_value for basic info if user lacks permission
+            try:
+                doc_info = frappe.db.get_value(
+                    task.reference_doctype,
+                    task.reference_name,
+                    ["name", "owner"],
+                    as_dict=True
+                )
+                if doc_info:
+                    # Create a minimal dict to provide basic info
+                    ref_doc = frappe._dict({
+                        "name": doc_info.name,
+                        "owner": doc_info.owner,
+                        "title": doc_info.name
+                    })
+            except Exception:
+                pass
 
     # Parse available actions
     available_actions = task.get_available_actions_list()
@@ -189,6 +206,54 @@ def get_task_details(task_name: str) -> dict:
             "title": getattr(ref_doc, "title", None) or getattr(ref_doc, "name", None) if ref_doc else None,
             "owner": ref_doc.owner if ref_doc else None,
         } if ref_doc else None
+    }
+
+
+@frappe.whitelist()
+def get_current_user_info() -> dict:
+    """
+    Get current user info including workflow-relevant roles.
+
+    Returns:
+        Dict with user info and roles used in workflows
+    """
+    user = frappe.session.user
+    user_doc = frappe.get_doc("User", user)
+
+    # Get all user roles
+    user_roles = frappe.get_roles(user)
+
+    # Get roles that are used in approval tasks
+    workflow_roles = []
+    try:
+        # Get roles used in active approval tasks
+        used_roles = frappe.db.sql("""
+            SELECT DISTINCT assigned_role
+            FROM `tabApproval Task`
+            WHERE assigned_role IS NOT NULL
+            AND assigned_role != ''
+        """, as_list=True)
+        used_roles = [r[0] for r in used_roles]
+
+        # Filter to only roles the user has
+        workflow_roles = [r for r in user_roles if r in used_roles]
+
+        # Also add common approval roles if user has them
+        common_approval_roles = ["Sales User", "Sales Manager", "Accounts User", "Accounts Manager",
+                                  "Purchase User", "Purchase Manager", "HR User", "HR Manager",
+                                  "System Manager", "Workflow Manager"]
+        for role in common_approval_roles:
+            if role in user_roles and role not in workflow_roles:
+                workflow_roles.append(role)
+    except Exception:
+        workflow_roles = []
+
+    return {
+        "user": user,
+        "full_name": user_doc.full_name,
+        "email": user_doc.email,
+        "user_roles": user_roles,
+        "workflow_roles": workflow_roles
     }
 
 
@@ -295,6 +360,57 @@ def get_role_assignees(task_name: str) -> list:
 
 
 @frappe.whitelist()
+def submit_document(task_name: str) -> dict:
+    """
+    Submit the document associated with an approval task.
+
+    Args:
+        task_name: Approval Task name
+
+    Returns:
+        Dict with success status and docstatus
+    """
+    task = frappe.get_doc("Approval Task", task_name)
+
+    # Verify user can complete this task
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user)
+    can_action = False
+
+    if task.assigned_to == user:
+        can_action = True
+    elif task.assigned_role and task.assigned_role in user_roles:
+        can_action = True
+    elif "System Manager" in user_roles:
+        can_action = True
+
+    if not can_action:
+        frappe.throw(_("You are not authorized to submit this document"))
+
+    # Get reference document - use ignore_permissions since we've verified user can action the task
+    try:
+        ref_doc = frappe.get_doc(task.reference_doctype, task.reference_name)
+    except frappe.PermissionError:
+        # User can action this approval task but doesn't have direct doc permission
+        # Allow access since they're an authorized approver
+        ref_doc = frappe.get_doc(task.reference_doctype, task.reference_name, ignore_permissions=True)
+
+    # Check if submittable
+    if not ref_doc.meta.is_submittable:
+        frappe.throw(_("This document type is not submittable"))
+
+    # Check if already submitted
+    if ref_doc.docstatus == 1:
+        frappe.throw(_("Document is already submitted"))
+
+    # Submit document - use ignore_permissions since user is authorized via approval task
+    ref_doc.flags.ignore_permissions = True
+    ref_doc.submit()
+
+    return {"success": True, "docstatus": ref_doc.docstatus}
+
+
+@frappe.whitelist()
 def get_resolver_types() -> list:
     """
     Get available resolver types for UI configuration.
@@ -304,6 +420,62 @@ def get_resolver_types() -> list:
     """
     from xstate_workflow.resolvers import list_resolver_types
     return list_resolver_types()
+
+
+@frappe.whitelist()
+def get_document_approval_tasks(doctype: str, docname: str) -> list:
+    """
+    Get approval tasks for a specific document.
+
+    Args:
+        doctype: Document type
+        docname: Document name
+
+    Returns:
+        List of approval tasks for this document
+    """
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user)
+
+    # Get all tasks for this document
+    tasks = frappe.get_all(
+        "Approval Task",
+        filters={
+            "reference_doctype": doctype,
+            "reference_name": docname
+        },
+        fields=[
+            "name", "node_id", "node_label", "status",
+            "assigned_to", "assigned_role", "priority",
+            "available_actions", "action_taken", "due_date"
+        ],
+        order_by="creation desc"
+    )
+
+    # Add can_action flag to each task
+    for task in tasks:
+        can_action = False
+        if task.status == "Pending":
+            # Check if user can action this task
+            if task.assigned_to == user:
+                can_action = True
+            elif task.assigned_role and task.assigned_role in user_roles:
+                can_action = True
+            elif "System Manager" in user_roles:
+                can_action = True
+
+        task["can_action"] = can_action
+
+        # Parse available actions
+        if task.available_actions:
+            try:
+                task["available_actions"] = json.loads(task.available_actions)
+            except json.JSONDecodeError:
+                task["available_actions"] = ["Approve", "Reject"]
+        else:
+            task["available_actions"] = ["Approve", "Reject"]
+
+    return tasks
 
 
 @frappe.whitelist()

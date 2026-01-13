@@ -171,10 +171,13 @@ class ApprovalTask(Document):
 
         old_user = self.assigned_to
         self.assigned_to = new_user
-        self.status = "Reassigned"
+        # Keep status as Pending so the new assignee sees it in their task list
+        # Only add a note about reassignment in comments
 
         if reason:
-            self.comments = (self.comments or "") + f"\n\nReassigned: {reason}"
+            self.comments = (self.comments or "") + f"\n\nReassigned from {old_user or 'unassigned'}: {reason}"
+        else:
+            self.comments = (self.comments or "") + f"\n\nReassigned from {old_user or 'unassigned'}"
 
         self.save(ignore_permissions=True)
 

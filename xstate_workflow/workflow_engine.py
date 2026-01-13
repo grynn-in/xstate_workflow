@@ -940,6 +940,19 @@ def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_
 
     node_type = domain_node.get("type")
 
+    # Handle auto-submit on final approval for submittable doctypes
+    if node_type == "end" and domain_node.get("final_status") == "Approved":
+        if ref_doc.meta.is_submittable and ref_doc.docstatus == 0:
+            try:
+                ref_doc.submit()
+                frappe.msgprint(
+                    _("Document submitted automatically"),
+                    indicator="green",
+                    alert=True
+                )
+            except Exception as e:
+                frappe.log_error(f"Auto-submit failed for {ref_doc.doctype} {ref_doc.name}: {e}")
+
     if node_type == "approval":
         # Create approval task
         try:
@@ -1047,8 +1060,9 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
         instance = frappe.get_doc("Machine Instance", instance_name)
         machine_doc = frappe.get_doc("State Machine", instance.machine)
 
-        # Get reference document
-        ref_doc = frappe.get_doc(instance.reference_doctype, instance.reference_name)
+        # Get reference document - use ignore_permissions since authorization
+        # is handled at the API layer via approval task assignment
+        ref_doc = frappe.get_doc(instance.reference_doctype, instance.reference_name, ignore_permissions=True)
 
         # Load config
         config = json.loads(machine_doc.json_config)

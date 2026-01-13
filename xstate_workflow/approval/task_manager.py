@@ -353,6 +353,7 @@ def get_my_approval_tasks(
             "due_date",
             "available_actions",
             "action_taken",
+            "completed_by",
             "creation",
             "modified"
         ],
@@ -361,7 +362,7 @@ def get_my_approval_tasks(
         limit_start=offset
     )
 
-    # Parse available_actions JSON
+    # Parse available_actions JSON and enrich with document details
     for task in tasks:
         if task.available_actions:
             try:
@@ -376,6 +377,55 @@ def get_my_approval_tasks(
             task["is_overdue"] = frappe.utils.get_datetime(task.due_date) < now_datetime()
         else:
             task["is_overdue"] = False
+
+        # Fetch reference document details
+        try:
+            doc_info = frappe.db.get_value(
+                task.reference_doctype,
+                task.reference_name,
+                ["creation", "modified", "owner"],
+                as_dict=True
+            )
+            if doc_info:
+                task["doc_created"] = doc_info.creation
+                task["doc_modified"] = doc_info.modified
+                task["doc_owner"] = doc_info.owner
+
+                # Get owner's full name
+                task["doc_owner_name"] = frappe.db.get_value("User", doc_info.owner, "full_name") or doc_info.owner
+        except Exception:
+            pass
+
+        # Get completed_by full name for completed tasks
+        if task.get("completed_by"):
+            task["completed_by_name"] = frappe.db.get_value("User", task.completed_by, "full_name") or task.completed_by
+
+        # Get workflow submission date from Machine Instance
+        if task.workflow_instance:
+            task["workflow_submitted"] = frappe.db.get_value(
+                "Machine Instance", task.workflow_instance, "creation"
+            )
+
+        # Get last approver from previous completed tasks for this workflow
+        try:
+            last_approval = frappe.db.sql("""
+                SELECT completed_by, action_taken, completed_at
+                FROM `tabApproval Task`
+                WHERE workflow_instance = %s
+                AND status = 'Completed'
+                AND name != %s
+                ORDER BY completed_at DESC
+                LIMIT 1
+            """, (task.workflow_instance, task.name), as_dict=True)
+
+            if last_approval:
+                approver = last_approval[0]
+                approver["completed_by_name"] = frappe.db.get_value(
+                    "User", approver.completed_by, "full_name"
+                ) or approver.completed_by
+                task["last_approver"] = approver
+        except Exception:
+            pass
 
     return tasks
 
@@ -525,7 +575,8 @@ def _resolve_escalation_target(
         # Use hierarchy resolver to get next level
         from xstate_workflow.resolvers import resolve_assignment
 
-        ref_doc = frappe.get_doc(instance.reference_doctype, instance.reference_name)
+        # Use ignore_permissions since this is called by scheduler for escalation
+        ref_doc = frappe.get_doc(instance.reference_doctype, instance.reference_name, ignore_permissions=True)
 
         resolver_config = escalation_config.get("resolver", {
             "type": "hierarchy_walk",
