@@ -62,6 +62,20 @@
     },
 
     /**
+     * Manually start a workflow for a document
+     * Used when auto_start_on_create is disabled
+     * @param {string} doctype - DocType name
+     * @param {string} docname - Document name
+     * @returns {Promise}
+     */
+    start_workflow: function (doctype, docname) {
+      return frappe.xcall('xstate_workflow.api.workflow.start_workflow', {
+        doctype: doctype,
+        docname: docname
+      });
+    },
+
+    /**
      * Open workflow builder in new tab
      * @param {string} machine_id - Optional machine ID to edit
      */
@@ -93,11 +107,28 @@
    * Add workflow section to form
    */
   function add_workflow_section(frm) {
-    // Skip if already added
+    // Skip if already added or request in progress
     if (frm.workflow_section_added) return;
+    if (frm.workflow_request_pending) return;
+
+    // Skip for new/unsaved documents
+    if (frm.doc.__islocal) return;
+
+    // Mark request as pending to prevent duplicate calls
+    frm.workflow_request_pending = true;
 
     // Get workflow state
     frappe.xstate_workflow.get_state(frm.doc.doctype, frm.doc.name).then(function (state) {
+      // Check if workflow is attached but not started (manual start required)
+      // auto_start must be explicitly 0 (not just falsy) to show Start Workflow button
+      if (!state.has_workflow && state.workflow_attached && state.auto_start === 0) {
+        frm.workflow_section_added = true;
+        frm.workflow_state = state;
+        // Show "Start Workflow" UI
+        add_start_workflow_tab(frm, state);
+        return;
+      }
+
       if (!state.has_workflow) return;
 
       frm.workflow_section_added = true;
@@ -111,6 +142,137 @@
 
       // Control Submit button visibility based on workflow state
       update_submit_button_visibility(frm, state);
+    }).catch(function(err) {
+      console.error('XState Workflow: Error getting workflow state', err);
+      frm.workflow_request_pending = false;
+    }).finally(function() {
+      frm.workflow_request_pending = false;
+    });
+  }
+
+  /**
+   * Add workflow tab with "Start Workflow" button when workflow is configured but not started
+   */
+  function add_start_workflow_tab(frm, state) {
+    // Remove existing tab if any
+    $('.xstate-workflow-tab').remove();
+    $('.xstate-workflow-pane').remove();
+
+    var machine_name = state.machine || '';
+
+    // Find the tab navigation
+    var $tabNav = frm.$wrapper.find('.form-tabs .nav-tabs, .form-tabs > ul');
+    var $tabContent = frm.$wrapper.find('.form-tab-content');
+
+    if (!$tabNav.length) {
+      // Fallback to section
+      add_start_workflow_section_fallback(frm, state);
+      return;
+    }
+
+    // Create tab button
+    var tabId = 'workflow-tab-' + frm.doc.name.replace(/[^a-zA-Z0-9]/g, '_');
+    var $tab = $('<li class="nav-item xstate-workflow-tab">' +
+      '<a class="nav-link" data-toggle="tab" href="#' + tabId + '">' +
+        '<span class="tab-label">⚡ Workflow</span>' +
+      '</a>' +
+    '</li>');
+
+    var paneHtml = '<div class="tab-pane xstate-workflow-pane" id="' + tabId + '" style="padding: 20px;">' +
+      '<div class="workflow-tab-header" style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #e5e5e5;">' +
+        '<h4 style="margin: 0 0 8px 0;">' + __('Workflow') + '</h4>' +
+        '<span class="indicator-pill gray" style="font-size: 14px; padding: 6px 14px;">' + __('Not Started') + '</span>' +
+      '</div>' +
+      '<div class="workflow-start-section" style="text-align: center; padding: 30px 0;">' +
+        '<p class="text-muted" style="margin-bottom: 15px;">' + __('This document has a workflow configured but it has not been started yet.') + '</p>' +
+        '<button class="btn btn-primary btn-sm start-workflow-btn" style="padding: 10px 24px;">' +
+          __('Start Workflow') +
+        '</button>' +
+      '</div>' +
+      (machine_name ? '<div class="workflow-links" style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #e5e5e5;">' +
+        '<a href="/app/state-machine/' + encodeURIComponent(machine_name) + '" class="text-muted">' + __('⚙️ Workflow Settings') + '</a>' +
+      '</div>' : '') +
+    '</div>';
+
+    // Add tab and pane to DOM
+    $tabNav.append($tab);
+    $tabContent.append(paneHtml);
+
+    frm.workflow_tab_added = true;
+
+    // Bind start workflow button
+    $('#' + tabId).find('.start-workflow-btn').on('click', function() {
+      var $btn = $(this);
+      $btn.prop('disabled', true).text(__('Starting...'));
+
+      frappe.xstate_workflow.start_workflow(frm.doc.doctype, frm.doc.name)
+        .then(function(r) {
+          if (r && r.success) {
+            frappe.show_alert({
+              message: r.message || __('Workflow started successfully'),
+              indicator: 'green'
+            });
+            // Reload the form to show the active workflow
+            frm.workflow_section_added = false;
+            frm.reload_doc();
+          } else {
+            frappe.show_alert({
+              message: r.message || __('Failed to start workflow'),
+              indicator: 'red'
+            });
+            $btn.prop('disabled', false).text(__('Start Workflow'));
+          }
+        })
+        .catch(function(err) {
+          frappe.show_alert({
+            message: __('Error starting workflow'),
+            indicator: 'red'
+          });
+          $btn.prop('disabled', false).text(__('Start Workflow'));
+        });
+    });
+  }
+
+  /**
+   * Fallback section for "Start Workflow" when tabs don't exist
+   */
+  function add_start_workflow_section_fallback(frm, state) {
+    var machine_name = state.machine || '';
+
+    var html = '<div class="xstate-workflow-section" style="margin: 20px 15px; padding: 20px; background: white; border: 1px solid #e5e5e5; border-radius: 8px;">' +
+      '<h5 style="margin: 0 0 15px 0; font-weight: 600; color: #374151;">⚡ Workflow</h5>' +
+      '<div style="text-align: center; padding: 20px 0;">' +
+        '<p class="text-muted" style="margin-bottom: 15px;">' + __('Workflow not started') + '</p>' +
+        '<button class="btn btn-primary btn-sm start-workflow-btn">' + __('Start Workflow') + '</button>' +
+      '</div>' +
+    '</div>';
+
+    var $section = $(html);
+    frm.$wrapper.find('.form-layout, .form-page').first().append($section);
+    frm.workflow_tab_added = true;
+
+    // Bind start workflow button
+    $section.find('.start-workflow-btn').on('click', function() {
+      var $btn = $(this);
+      $btn.prop('disabled', true).text(__('Starting...'));
+
+      frappe.xstate_workflow.start_workflow(frm.doc.doctype, frm.doc.name)
+        .then(function(r) {
+          if (r && r.success) {
+            frappe.show_alert({
+              message: r.message || __('Workflow started successfully'),
+              indicator: 'green'
+            });
+            frm.workflow_section_added = false;
+            frm.reload_doc();
+          } else {
+            frappe.show_alert({
+              message: r.message || __('Failed to start workflow'),
+              indicator: 'red'
+            });
+            $btn.prop('disabled', false).text(__('Start Workflow'));
+          }
+        });
     });
   }
 

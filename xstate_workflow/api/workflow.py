@@ -182,6 +182,87 @@ def reset_workflow(doctype: str, docname: str) -> dict:
 
 
 @frappe.whitelist()
+def start_workflow(doctype: str, docname: str) -> dict:
+    """
+    Manually start a workflow for a document.
+
+    Used when auto_start_on_create is disabled on the State Machine,
+    allowing users to explicitly start the workflow via a button.
+
+    Parameters:
+    - doctype (str): Document type name
+    - docname (str): Document name
+
+    Returns:
+    {
+        "success": bool,
+        "instance_name": str,
+        "current_state": str,
+        "message": str
+    }
+    """
+    from xstate_workflow.workflow_engine import get_or_create_instance, get_machine_state
+
+    # Check if document exists
+    if not frappe.db.exists(doctype, docname):
+        return {
+            "success": False,
+            "message": _("Document {0} {1} not found").format(doctype, docname)
+        }
+
+    # Check if instance already exists
+    existing = frappe.db.get_value(
+        "Machine Instance",
+        {"reference_doctype": doctype, "reference_name": docname},
+        "name"
+    )
+
+    if existing:
+        return {
+            "success": False,
+            "message": _("Workflow already started for this document"),
+            "instance_name": existing
+        }
+
+    # Check if there's an active workflow for this doctype
+    machine = frappe.db.get_value(
+        "State Machine",
+        {"attached_doctype": doctype, "is_active": 1},
+        "name"
+    )
+
+    if not machine:
+        return {
+            "success": False,
+            "message": _("No active workflow configured for {0}").format(doctype)
+        }
+
+    # Create the instance
+    try:
+        instance_name = get_or_create_instance(doctype, docname)
+
+        if instance_name:
+            state = get_machine_state(doctype, docname)
+            return {
+                "success": True,
+                "instance_name": instance_name,
+                "current_state": state.get("current_state"),
+                "message": _("Workflow started successfully")
+            }
+    except Exception as e:
+        frappe.log_error(f"Failed to start workflow: {e}")
+        return {
+            "success": False,
+            "message": _("Failed to start workflow: {0}").format(str(e))
+        }
+
+    return {
+        "success": False,
+        "message": _("Failed to start workflow")
+    }
+
+
+@frappe.whitelist()
 def list_workflows(attached_to: str = None) -> list:
     """List all available workflow definitions."""
     from xstate_workflow.workflow_engine import list_machines

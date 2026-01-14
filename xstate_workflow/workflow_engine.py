@@ -106,9 +106,27 @@ def get_machine_state(doctype: str, docname: str) -> dict:
 
     instance = get_instance_for_doc(doctype, docname)
 
+    # Check if a workflow is attached to this doctype (even if no instance exists yet)
+    machine_info = frappe.db.get_value(
+        "State Machine",
+        {"attached_doctype": doctype, "is_active": 1},
+        ["name", "auto_start_on_create"],
+        as_dict=True
+    )
+
     if not instance:
+        # No instance, but check if workflow is configured for this doctype
+        if machine_info:
+            return {
+                "has_workflow": False,
+                "workflow_attached": True,
+                "auto_start": machine_info.auto_start_on_create,
+                "machine": machine_info.name,
+                "message": _("Workflow configured but not started for this document")
+            }
         return {
             "has_workflow": False,
+            "workflow_attached": False,
             "message": _("No workflow attached to this document")
         }
 
@@ -125,6 +143,8 @@ def get_machine_state(doctype: str, docname: str) -> dict:
 
     return {
         "has_workflow": True,
+        "workflow_attached": True,
+        "auto_start": machine_info.auto_start_on_create if machine_info else True,
         "instance_name": instance.name,
         "machine": instance.machine,
         "current_state": instance.current_state,
@@ -2112,6 +2132,9 @@ def check_and_trigger(doc, method=None):
     if not machine:
         return
 
+    # Check if auto-start is enabled for this machine
+    auto_start = frappe.db.get_value("State Machine", machine, "auto_start_on_create")
+
     # Get or create instance
     instance = get_instance_for_doc(doc.doctype, doc.name)
 
@@ -2119,6 +2142,9 @@ def check_and_trigger(doc, method=None):
         # Create new instance for documents with active workflow
         # This triggers the workflow to start in its initial state
         if method == "after_insert":
+            # Skip auto-creation if auto_start_on_create is disabled
+            if not auto_start:
+                return
             try:
                 instance_name = get_or_create_instance(doc.doctype, doc.name)
                 instance = frappe.get_doc("Machine Instance", instance_name)
@@ -2127,6 +2153,26 @@ def check_and_trigger(doc, method=None):
                     indicator="blue",
                     alert=True
                 )
+
+                # Auto-trigger initial event if configured
+                machine_doc = frappe.get_cached_doc("State Machine", machine)
+                config = json.loads(machine_doc.json_config)
+                initial_event = config.get("meta", {}).get("auto_trigger_initial_event")
+
+                if initial_event:
+                    # Trigger the configured initial event to kick off the workflow
+                    frappe.db.commit()  # Commit instance creation first
+                    try:
+                        result = trigger_event_sync(doc.doctype, doc.name, initial_event, "{}")
+                        if result.get("success"):
+                            frappe.msgprint(
+                                _("Workflow transitioned to: {0}").format(result.get("new_state")),
+                                indicator="green",
+                                alert=True
+                            )
+                    except Exception as trigger_err:
+                        frappe.log_error(f"Failed to auto-trigger initial event: {trigger_err}")
+
             except Exception as e:
                 frappe.log_error(f"Failed to create workflow instance: {e}")
                 return

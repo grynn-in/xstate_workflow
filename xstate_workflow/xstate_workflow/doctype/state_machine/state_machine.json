@@ -13,6 +13,7 @@
   "description",
   "column_break_basic",
   "is_active",
+  "auto_start_on_create",
   "version",
   "attached_doctype",
   "tenant",
@@ -66,6 +67,13 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Is Active"
+  },
+  {
+   "default": "1",
+   "description": "If checked, workflow starts automatically when document is created. If unchecked, user must click 'Start Workflow' button.",
+   "fieldname": "auto_start_on_create",
+   "fieldtype": "Check",
+   "label": "Auto-start on Create"
   },
   {
    "default": "1",
