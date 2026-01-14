@@ -4,7 +4,6 @@
 
 {% block head_include %}
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="csrf-token" content="{{ csrf_token }}">
 <style>
   body {
     background: #f3f4f6;
@@ -206,233 +205,127 @@
     color: #3b82f6;
   }
 
-  .loading {
-    text-align: center;
-    padding: 40px;
-    color: #6b7280;
-  }
-
   .error {
     text-align: center;
     padding: 40px;
     color: #ef4444;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+
+  .no-workflow {
+    text-align: center;
+    padding: 40px;
+    color: #6b7280;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   }
 </style>
 {% endblock %}
 
 {% block page_content %}
 <div class="viewer-container">
-  <a href="javascript:history.back()" class="back-link">← Back to Document</a>
+  <a href="/app/{{ doctype | lower | replace(' ', '-') }}/{{ docname | urlencode }}" class="back-link">← Back to Document</a>
 
   <div class="viewer-header">
     <h1>⚡ Workflow Viewer</h1>
     <div class="subtitle">
-      <span id="doc-link"></span>
+      <a href="/app/{{ doctype | lower | replace(' ', '-') }}/{{ docname | urlencode }}">
+        {{ doctype }}: {{ docname }}
+      </a>
     </div>
   </div>
 
-  <div id="viewer-content">
-    <div class="loading">Loading workflow state...</div>
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% elif not workflow_state.has_workflow %}
+  <div class="no-workflow">No workflow found for this document</div>
+  {% else %}
+
+  <!-- Current State -->
+  <div class="state-card">
+    <h2>Current State</h2>
+    <div class="current-state">
+      {% set state_lower = workflow_state.current_state | lower %}
+      {% if 'pending' in state_lower %}
+        {% set state_class = 'pending' %}
+      {% elif 'approved' in state_lower or 'completed' in state_lower %}
+        {% set state_class = 'approved' %}
+      {% elif 'rejected' in state_lower or 'cancelled' in state_lower %}
+        {% set state_class = 'rejected' %}
+      {% elif 'draft' in state_lower %}
+        {% set state_class = 'draft' %}
+      {% else %}
+        {% set state_class = 'default' %}
+      {% endif %}
+      <span class="state-badge {{ state_class }}">
+        {{ workflow_state.current_state | replace('_', ' ') | title }}
+      </span>
+      <span class="status-label">Status: {{ workflow_state.status or 'active' }}</span>
+    </div>
+
+    {% if workflow_state.available_events %}
+    <h2 style="margin-top: 20px;">Available Actions</h2>
+    <div class="transitions-list">
+      {% for evt in workflow_state.available_events %}
+        {% if evt.enabled %}
+        <div class="transition-item">
+          <span class="from">{{ workflow_state.current_state | replace('_', ' ') | title }}</span>
+          <span class="arrow">→</span>
+          <span class="to">{{ (evt.target or '?') | replace('_', ' ') | title }}</span>
+          <span class="event">{{ evt.event }}</span>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
+
+  <!-- Workflow Diagram -->
+  <div class="diagram-container">
+    <h2>Workflow Diagram</h2>
+    <div class="workflow-diagram">
+      {% for state_name in all_states %}
+        {% set is_current = state_name == workflow_state.current_state %}
+        <div class="diagram-state{% if is_current %} current{% endif %}">
+          {{ state_name | replace('_', ' ') | title }}
+        </div>
+        {% if not loop.last %}
+        <span class="diagram-arrow">→</span>
+        {% endif %}
+      {% endfor %}
+      {% if not all_states %}
+      <div class="text-muted">No states defined</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Transition History -->
+  <div class="history-section">
+    <h2>Transition History</h2>
+    {% if transition_history %}
+      {% for entry in transition_history %}
+      <div class="history-item">
+        <div class="history-dot" style="{% if not loop.first %}background: #9ca3af;{% endif %}"></div>
+        <div class="history-content">
+          <div class="history-states">
+            {{ (entry.from_state or 'Start') | replace('_', ' ') | title }} → {{ entry.to_state | replace('_', ' ') | title }}
+          </div>
+          <div class="history-meta">
+            <strong>{{ entry.event }}</strong>
+            {% if entry.timestamp %} • {{ entry.timestamp }}{% endif %}
+            {% if entry.user %} • {{ entry.user }}{% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-muted">No transition history</div>
+    {% endif %}
+  </div>
+
+  {% endif %}
 </div>
-
-<script>
-(function() {
-  // Extract params from URL
-  var pathMatch = window.location.pathname.match(/\/xstate-viewer\/([^\/\?]+)/);
-  var machineId = pathMatch ? decodeURIComponent(pathMatch[1]) : '';
-  var params = new URLSearchParams(window.location.search);
-  var doctype = params.get('doctype') || '';
-  var docname = params.get('docname') || '';
-
-  console.log('Viewer params:', { machineId, doctype, docname });
-
-  // Update doc link
-  document.getElementById('doc-link').innerHTML =
-    '<a href="/app/' + doctype.toLowerCase().replace(/ /g, '-') + '/' + encodeURIComponent(docname) + '">' +
-    doctype + ': ' + docname + '</a>';
-
-  // Get CSRF token from various sources
-  function getCsrfToken() {
-    // Try frappe global first
-    if (typeof frappe !== 'undefined' && frappe.csrf_token) {
-      return frappe.csrf_token;
-    }
-    // Try meta tag
-    var meta = document.querySelector('meta[name="csrf-token"]');
-    if (meta) {
-      return meta.getAttribute('content');
-    }
-    // Try cookie
-    var match = document.cookie.match(/csrf_token=([^;]+)/);
-    if (match) {
-      return decodeURIComponent(match[1]);
-    }
-    return '';
-  }
-
-  // Helper for API calls (works on both desk and website pages)
-  function apiCall(method, args) {
-    return fetch('/api/method/' + method, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Frappe-CSRF-Token': getCsrfToken()
-      },
-      body: JSON.stringify(args),
-      credentials: 'include'
-    }).then(function(r) {
-      if (!r.ok) {
-        throw new Error('HTTP ' + r.status);
-      }
-      return r.json();
-    });
-  }
-
-  // Load workflow state
-  apiCall('xstate_workflow.workflow_engine.get_machine_state', { doctype: doctype, docname: docname })
-    .then(function(r) {
-      if (r.message) {
-        renderWorkflowState(r.message, machineId);
-      } else {
-        showError('No workflow found for this document');
-      }
-    })
-    .catch(function(err) {
-      showError('Failed to load workflow: ' + (err.message || 'Unknown error'));
-    });
-
-  // Load workflow definition for diagram
-  apiCall('xstate_workflow.workflow_engine.get_machine', { machine_id: machineId })
-    .then(function(r) {
-      if (r.message && r.message.json_config) {
-        renderDiagram(JSON.parse(r.message.json_config));
-      }
-    });
-
-  // Load transition history
-  apiCall('xstate_workflow.workflow_engine.get_machine_state_with_history', { doctype: doctype, docname: docname })
-    .then(function(r) {
-      if (r.message) {
-        renderHistory(r.message);
-      }
-    });
-
-  function getStateClass(state) {
-    var s = state.toLowerCase();
-    if (s.includes('pending')) return 'pending';
-    if (s.includes('approved') || s.includes('completed')) return 'approved';
-    if (s.includes('rejected') || s.includes('cancelled')) return 'rejected';
-    if (s.includes('draft')) return 'draft';
-    return 'default';
-  }
-
-  function formatState(state) {
-    return state.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
-  }
-
-  function renderWorkflowState(state, machineId) {
-    var html = '<div class="state-card">' +
-      '<h2>Current State</h2>' +
-      '<div class="current-state">' +
-        '<span class="state-badge ' + getStateClass(state.current_state) + '">' +
-          formatState(state.current_state) +
-        '</span>' +
-        '<span class="status-label">Status: ' + (state.status || 'active') + '</span>' +
-      '</div>';
-
-    if (state.available_events && state.available_events.length > 0) {
-      html += '<h2 style="margin-top: 20px;">Available Actions</h2>' +
-        '<div class="transitions-list">';
-      state.available_events.forEach(function(evt) {
-        if (evt.enabled) {
-          html += '<div class="transition-item">' +
-            '<span class="from">' + formatState(state.current_state) + '</span>' +
-            '<span class="arrow">→</span>' +
-            '<span class="to">' + (evt.target ? formatState(evt.target) : '?') + '</span>' +
-            '<span class="event">' + evt.event + '</span>' +
-          '</div>';
-        }
-      });
-      html += '</div>';
-    }
-
-    html += '</div>';
-
-    html += '<div class="diagram-container">' +
-      '<h2>Workflow Diagram</h2>' +
-      '<div id="workflow-diagram" class="workflow-diagram">Loading diagram...</div>' +
-    '</div>';
-
-    html += '<div class="history-section">' +
-      '<h2>Transition History</h2>' +
-      '<div id="history-list">Loading history...</div>' +
-    '</div>';
-
-    document.getElementById('viewer-content').innerHTML = html;
-
-    // Store current state for diagram highlighting
-    window.currentWorkflowState = state.current_state;
-  }
-
-  function renderDiagram(config) {
-    var states = config.states || {};
-    var initial = config.initial || '';
-    var currentState = window.currentWorkflowState || '';
-
-    var stateNames = Object.keys(states);
-    if (stateNames.length === 0) {
-      document.getElementById('workflow-diagram').innerHTML = '<div class="error">No states defined</div>';
-      return;
-    }
-
-    var html = '';
-    stateNames.forEach(function(stateName, index) {
-      var stateConfig = states[stateName];
-      var isCurrent = stateName === currentState;
-      var isFinal = stateConfig.type === 'final';
-
-      html += '<div class="diagram-state' + (isCurrent ? ' current' : '') + (isFinal ? ' final' : '') + '">' +
-        formatState(stateName) +
-      '</div>';
-
-      if (index < stateNames.length - 1) {
-        html += '<span class="diagram-arrow">→</span>';
-      }
-    });
-
-    document.getElementById('workflow-diagram').innerHTML = html;
-  }
-
-  function renderHistory(history) {
-    if (!history || history.length === 0) {
-      document.getElementById('history-list').innerHTML = '<div class="loading">No transition history</div>';
-      return;
-    }
-
-    var html = '';
-    history.forEach(function(entry) {
-      html += '<div class="history-item">' +
-        '<div class="history-dot"></div>' +
-        '<div class="history-content">' +
-          '<div class="history-states">' +
-            formatState(entry.from_state || 'Start') + ' → ' + formatState(entry.to_state) +
-          '</div>' +
-          '<div class="history-meta">' +
-            '<strong>' + entry.event + '</strong>' +
-            (entry.timestamp ? ' • ' + entry.timestamp : '') +
-            (entry.user ? ' • ' + entry.user : '') +
-          '</div>' +
-        '</div>' +
-      '</div>';
-    });
-
-    document.getElementById('history-list').innerHTML = html;
-  }
-
-  function showError(msg) {
-    document.getElementById('viewer-content').innerHTML = '<div class="error">' + msg + '</div>';
-  }
-})();
-</script>
 {% endblock %}
