@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { InstanceViewer } from './InstanceViewer';
+import { Dashboard } from './Dashboard';
 
 // Get configuration from data attributes or URL params for builder
 function getBuilderConfig(): { machineId?: string; attachedDoctype?: string } {
@@ -79,9 +80,30 @@ function mountViewer() {
   return true;
 }
 
+// Mount the dashboard application
+function mountDashboard() {
+  const root = document.getElementById('workflow-dashboard-root');
+  if (!root) {
+    return false;
+  }
+
+  ReactDOM.createRoot(root).render(
+    <React.StrictMode>
+      <Dashboard />
+    </React.StrictMode>
+  );
+
+  return true;
+}
+
 // Mount the appropriate application
 function mount() {
-  // Try viewer first (more specific root element)
+  // Try dashboard first
+  if (mountDashboard()) {
+    return;
+  }
+
+  // Try viewer (more specific root element)
   if (mountViewer()) {
     return;
   }
@@ -91,7 +113,7 @@ function mount() {
     return;
   }
 
-  console.error('No workflow root element found (expected workflow-builder-root or workflow-viewer-root)');
+  console.error('No workflow root element found (expected workflow-dashboard-root, workflow-viewer-root, or workflow-builder-root)');
 }
 
 // Auto-mount if DOM is ready
@@ -102,4 +124,4 @@ if (document.readyState === 'loading') {
 }
 
 // Export for manual mounting
-export { App, InstanceViewer, mount, mountBuilder, mountViewer };
+export { App, InstanceViewer, Dashboard, mount, mountBuilder, mountViewer, mountDashboard };

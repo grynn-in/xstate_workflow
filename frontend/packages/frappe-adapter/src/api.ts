@@ -43,6 +43,15 @@ export interface LoadMachineResponse {
   actions: Array<{ action_name: string; action_type: string; description?: string }>;
 }
 
+export interface MachineListItem {
+  machine_id: string;
+  title: string;
+  attached_doctype?: string;
+  is_active: boolean;
+  version: number;
+  modified: string;
+}
+
 export interface ListMachinesResponse {
   machines: Array<{
     name: string;
@@ -96,14 +105,20 @@ export async function loadMachine(machineId: string): Promise<LoadMachineRespons
 /**
  * List all workflow machines
  */
-export async function listMachines(attachedDoctype?: string): Promise<ListMachinesResponse> {
+export async function listMachines(
+  attachedDoctype?: string,
+  includeInactive?: boolean
+): Promise<MachineListItem[]> {
   if (!frappe) {
     throw new Error('Frappe not available');
   }
 
-  return frappe.xcall<ListMachinesResponse>(
+  return frappe.xcall<MachineListItem[]>(
     'xstate_workflow.workflow_engine.list_machines',
-    { attached_doctype: attachedDoctype }
+    {
+      attached_to: attachedDoctype,
+      include_inactive: includeInactive ?? false,
+    }
   );
 }
 

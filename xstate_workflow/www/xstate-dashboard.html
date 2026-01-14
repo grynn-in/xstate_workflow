@@ -1,0 +1,125 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Workflow Dashboard - XState{% endblock %}
+
+{% block head_include %}
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  /* Keep Frappe navbar but style the content area */
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+  }
+
+  .container {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  #workflow-dashboard-root {
+    width: 100%;
+    min-height: calc(100vh - 60px);
+    background: #f8fafc;
+  }
+
+  /* Loading state */
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: calc(100vh - 60px);
+    background: #f8fafc;
+    color: #334155;
+  }
+
+  .loading-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid rgba(99, 102, 241, 0.3);
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 16px;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Error state */
+  .error-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: calc(100vh - 60px);
+    background: #f8fafc;
+    color: #334155;
+    text-align: center;
+    padding: 20px;
+  }
+
+  .error-container h2 {
+    color: #ef4444;
+    margin-bottom: 16px;
+  }
+
+  .error-container p {
+    color: #64748b;
+    max-width: 500px;
+  }
+
+  .error-container a {
+    color: #6366f1;
+    text-decoration: none;
+    margin-top: 20px;
+  }
+
+  .error-container a:hover {
+    text-decoration: underline;
+  }
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div id="workflow-dashboard-root">
+  <div class="loading-container">
+    <div class="loading-spinner"></div>
+    <p>Loading Workflow Dashboard...</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+  // Error handler
+  window.onerror = function(msg, url, lineNo, columnNo, error) {
+    var root = document.getElementById('workflow-dashboard-root');
+    if (root) {
+      root.innerHTML = `
+        <div class="error-container">
+          <h2>Failed to Load</h2>
+          <p>The Workflow Dashboard could not be loaded. This might be because:</p>
+          <ul style="text-align: left; color: #64748b;">
+            <li>The JavaScript bundle hasn't been built yet</li>
+            <li>There's a browser compatibility issue</li>
+            <li>Network error loading resources</li>
+          </ul>
+          <p style="margin-top: 16px; font-size: 12px; color: #94a3b8;">
+            Error: ${msg}
+          </p>
+          <a href="/app/state-machine">Go to State Machine List</a>
+        </div>
+      `;
+    }
+    return false;
+  };
+</script>
+{% endblock %}

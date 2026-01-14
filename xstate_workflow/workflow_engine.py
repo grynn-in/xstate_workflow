@@ -295,12 +295,13 @@ def get_machine(machine_id: str) -> dict:
 
 
 @frappe.whitelist()
-def list_machines(attached_to: str = None) -> list:
+def list_machines(attached_to: str = None, include_inactive: bool = False) -> list:
     """
     List all state machines, optionally filtered by attached DocType.
 
     Args:
         attached_to: Filter by attached DocType
+        include_inactive: If True, include inactive workflows (default: False)
 
     Returns:
         list of machine summaries
@@ -309,14 +310,21 @@ def list_machines(attached_to: str = None) -> list:
     if not frappe.has_permission("State Machine", "read"):
         frappe.throw(_("No permission to access State Machines"), frappe.PermissionError)
 
-    filters = {"is_active": 1}
+    # Handle string "true"/"false" from frontend
+    if isinstance(include_inactive, str):
+        include_inactive = include_inactive.lower() == "true"
+
+    filters = {}
+    if not include_inactive:
+        filters["is_active"] = 1
     if attached_to:
         filters["attached_doctype"] = attached_to
 
     machines = frappe.get_all(
         "State Machine",
         filters=filters,
-        fields=["machine_id", "title", "version", "attached_doctype", "modified"]
+        fields=["machine_id", "title", "version", "attached_doctype", "is_active", "modified"],
+        order_by="modified desc"
     )
 
     return machines
