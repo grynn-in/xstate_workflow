@@ -379,7 +379,9 @@ function buildDomainNode(
   parentId?: string
 ): WorkflowNode {
   const meta = stateConfig.meta.domain_node;
-  const domainType = meta.type;
+  // Normalize domain type (handle both hyphen and underscore variants)
+  const rawType = meta.type;
+  const domainType = typeof rawType === 'string' ? rawType.replace(/-/g, '_') : rawType;
 
   const position = existingPositions.get(stateName) || {
     x: basePosition.x + xOffset,
