@@ -241,10 +241,15 @@ function processEventTransitions(
   stateIdMap: Map<string, string>
 ): void {
   for (const [eventName, transition] of Object.entries(on)) {
+    // Skip undefined/null transitions
+    if (transition == null) continue;
+
     if (Array.isArray(transition)) {
       // Multiple conditional transitions
       for (const t of transition) {
-        createEdgeFromTransition(t, eventName, 'event', sourceId, edges, stateIdMap);
+        if (t != null) {
+          createEdgeFromTransition(t, eventName, 'event', sourceId, edges, stateIdMap);
+        }
       }
     } else {
       createEdgeFromTransition(transition, eventName, 'event', sourceId, edges, stateIdMap);
@@ -262,6 +267,9 @@ function processDelayedTransitions(
   stateIdMap: Map<string, string>
 ): void {
   for (const [delay, transition] of Object.entries(after)) {
+    // Skip undefined/null transitions
+    if (transition == null) continue;
+
     const delayMs = parseInt(delay, 10);
     createEdgeFromTransition(
       transition,
@@ -285,6 +293,9 @@ function processAlwaysTransitions(
   stateIdMap: Map<string, string>
 ): void {
   for (const transition of always) {
+    // Skip undefined/null transitions
+    if (transition == null) continue;
+
     createEdgeFromTransition(transition, undefined, 'always', sourceId, edges, stateIdMap);
   }
 }
@@ -301,6 +312,9 @@ function createEdgeFromTransition(
   stateIdMap: Map<string, string>,
   delay?: number
 ): void {
+  // Skip null/undefined transitions
+  if (transition == null) return;
+
   // Handle simple string transitions
   if (typeof transition === 'string') {
     const targetId = stateIdMap.get(transition);
