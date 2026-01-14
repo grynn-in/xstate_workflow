@@ -29,9 +29,12 @@ def get_context(context):
     context.no_breadcrumbs = 1
     context.full_width = 1
 
-    # Include React Flow bundle
+    # Include React standalone bundle and CSS
+    context.include_css = [
+        "/assets/xstate_workflow/js/workflow_builder.css"
+    ]
     context.include_script = [
-        "/assets/xstate_workflow/js/workflow_builder.bundle.js"
+        "/assets/xstate_workflow/js/workflow_builder.standalone.iife.js"
     ]
 
     return context
