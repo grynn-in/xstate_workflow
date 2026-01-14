@@ -222,7 +222,108 @@
     border-radius: 12px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   }
+
+  /* Mermaid diagram styles */
+  .mermaid-container {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+
+  .mermaid-container h2 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    color: #374151;
+    font-weight: 600;
+  }
+
+  .mermaid-diagram {
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 20px;
+    overflow-x: auto;
+    min-height: 200px;
+  }
+
+  .mermaid-diagram .mermaid {
+    display: flex;
+    justify-content: center;
+  }
+
+  /* State tooltip styles */
+  .state-tooltip {
+    position: fixed;
+    background: #1f2937;
+    color: white;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    max-width: 300px;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .state-tooltip.visible {
+    opacity: 1;
+  }
+
+  .tooltip-header {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #60a5fa;
+    text-transform: capitalize;
+  }
+
+  .tooltip-entry {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #374151;
+  }
+
+  .tooltip-entry:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  .tooltip-label {
+    color: #9ca3af;
+    font-size: 11px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .tooltip-event {
+    font-weight: 600;
+    color: #fbbf24;
+  }
+
+  .tooltip-user {
+    color: #d1d5db;
+  }
+
+  .tooltip-time {
+    font-size: 11px;
+    color: #9ca3af;
+  }
+
+  /* Make mermaid nodes interactive */
+  .mermaid .node {
+    cursor: pointer;
+  }
+
+  .mermaid .node:hover rect,
+  .mermaid .node:hover polygon {
+    filter: brightness(1.1);
+  }
 </style>
+<!-- Mermaid.js via CDN for state diagram rendering -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 {% endblock %}
 
 {% block page_content %}
@@ -283,7 +384,21 @@
     {% endif %}
   </div>
 
-  <!-- Workflow Diagram -->
+  <!-- Workflow State Diagram (Mermaid) -->
+  {% if mermaid_definition %}
+  <div class="mermaid-container">
+    <h2>Workflow State Diagram</h2>
+    <div class="mermaid-diagram">
+      <pre class="mermaid" id="workflow-diagram">
+{{ mermaid_definition }}
+      </pre>
+    </div>
+  </div>
+
+  <!-- Tooltip element -->
+  <div class="state-tooltip" id="state-tooltip"></div>
+  {% else %}
+  <!-- Fallback to simple diagram if no mermaid definition -->
   <div class="diagram-container">
     <h2>Workflow Diagram</h2>
     <div class="workflow-diagram">
@@ -301,6 +416,7 @@
       {% endif %}
     </div>
   </div>
+  {% endif %}
 
   <!-- Transition History -->
   <div class="history-section">
@@ -328,4 +444,116 @@
 
   {% endif %}
 </div>
+
+{% if mermaid_definition %}
+<script>
+  // Initialize Mermaid
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'neutral',
+    securityLevel: 'loose',
+    flowchart: {
+      useMaxWidth: true,
+      htmlLabels: true
+    },
+    themeVariables: {
+      primaryColor: '#dbeafe',
+      primaryTextColor: '#1e40af',
+      primaryBorderColor: '#3b82f6',
+      lineColor: '#6b7280',
+      secondaryColor: '#f3f4f6',
+      tertiaryColor: '#fff'
+    }
+  });
+
+  // Tooltip data from server (escaped for safety)
+  const tooltipData = {{ tooltip_data | tojson }};
+
+  // Add interactivity after Mermaid renders
+  document.addEventListener('DOMContentLoaded', function() {
+    // Wait for Mermaid to finish rendering
+    setTimeout(function() {
+      const diagram = document.getElementById('workflow-diagram');
+      if (!diagram) return;
+
+      const tooltip = document.getElementById('state-tooltip');
+      if (!tooltip) return;
+
+      // Find all state nodes in the rendered SVG
+      const svg = diagram.querySelector('svg');
+      if (!svg) return;
+
+      const stateNodes = svg.querySelectorAll('.node');
+
+      stateNodes.forEach(function(node) {
+        // Extract state name from node - try multiple selectors
+        const textEl = node.querySelector('.nodeLabel') || node.querySelector('text') || node.querySelector('span');
+        if (!textEl) return;
+
+        // Get the text content and normalize it to match our data keys
+        const displayName = textEl.textContent.trim();
+        // Convert display name back to state key (e.g., "Pending Purchase Approval" -> "pending_purchase_approval")
+        const stateName = displayName.toLowerCase().replace(/\s+/g, '_');
+
+        const stateData = tooltipData[stateName];
+
+        if (stateData && stateData.visits && stateData.visits.length > 0) {
+          node.style.cursor = 'pointer';
+
+          node.addEventListener('mouseenter', function(e) {
+            let html = '<div class="tooltip-header">' + displayName + '</div>';
+
+            // Show visits (most recent first, limit to 5)
+            const visits = stateData.visits.slice(-5).reverse();
+            visits.forEach(function(visit) {
+              html += '<div class="tooltip-entry">';
+              html += '<div class="tooltip-label">' + (visit.type === 'entry' ? 'Entered via' : 'Exited via') + '</div>';
+              html += '<div class="tooltip-event">' + (visit.event || 'N/A') + '</div>';
+              if (visit.user) {
+                html += '<div class="tooltip-user">' + visit.user + '</div>';
+              }
+              if (visit.timestamp) {
+                html += '<div class="tooltip-time">' + visit.timestamp + '</div>';
+              }
+              html += '</div>';
+            });
+
+            tooltip.innerHTML = html;
+            positionTooltip(e);
+            tooltip.classList.add('visible');
+          });
+
+          node.addEventListener('mouseleave', function() {
+            tooltip.classList.remove('visible');
+          });
+
+          node.addEventListener('mousemove', function(e) {
+            positionTooltip(e);
+          });
+        }
+      });
+
+      function positionTooltip(e) {
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+
+        let left = e.clientX + 15;
+        let top = e.clientY + 15;
+
+        // Prevent tooltip from going off-screen
+        if (left + tooltipRect.width > viewportWidth - 10) {
+          left = e.clientX - tooltipRect.width - 15;
+        }
+        if (top + tooltipRect.height > viewportHeight - 10) {
+          top = e.clientY - tooltipRect.height - 15;
+        }
+
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+      }
+    }, 500); // Wait for Mermaid to render
+  });
+</script>
+{% endif %}
 {% endblock %}

@@ -29,6 +29,8 @@ def get_context(context):
     context.machine_id = ""
     context.doctype = ""
     context.docname = ""
+    context.mermaid_definition = ""
+    context.tooltip_data = {}
 
     # Check if user is logged in
     if frappe.session.user == "Guest":
@@ -63,6 +65,24 @@ def get_context(context):
                     context.all_states = list(config.get("states", {}).keys())
             except Exception:
                 pass  # Machine might not exist
+
+        # Generate Mermaid diagram definition (server-side for performance)
+        if context.workflow_state.get("has_workflow") and context.machine_config.get("json_config"):
+            from xstate_workflow.mermaid_generator import (
+                generate_mermaid_diagram,
+                generate_tooltip_data,
+            )
+            try:
+                config = json.loads(context.machine_config["json_config"])
+                context.mermaid_definition = generate_mermaid_diagram(
+                    config=config,
+                    current_state=context.workflow_state.get("current_state"),
+                    transition_log=context.transition_history,
+                    all_states=context.all_states,
+                )
+                context.tooltip_data = generate_tooltip_data(context.transition_history)
+            except Exception as e:
+                frappe.log_error(f"Mermaid diagram generation error: {e}")
 
     except frappe.PermissionError as e:
         context.error = str(e)
