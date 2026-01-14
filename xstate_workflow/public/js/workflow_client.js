@@ -142,6 +142,9 @@
 
       // Control Submit button visibility based on workflow state
       update_submit_button_visibility(frm, state);
+
+      // Control form edit permissions based on workflow state and task assignment
+      update_form_edit_permissions(frm, state);
     }).catch(function(err) {
       console.error('XState Workflow: Error getting workflow state', err);
       frm.workflow_request_pending = false;
@@ -312,6 +315,61 @@
     if (!allow_submit) {
       // Hide Submit option from menu and primary action
       hide_submit_button(frm, current_state, status);
+    }
+  }
+
+  /**
+   * Control form edit permissions based on workflow state and task assignment
+   * Makes the form read-only for users who are not authorized to edit
+   */
+  function update_form_edit_permissions(frm, state) {
+    // Skip if no state or no restrictions
+    var edit_mode = state.edit_restriction_mode || 'None';
+    var status = (state.status || '').toLowerCase();
+
+    // No restrictions if mode is None or workflow is idle/final
+    if (edit_mode === 'None' || status === 'idle' || status === 'final') {
+      return;
+    }
+
+    // Check if user can edit (provided by API)
+    var can_edit = state.can_user_edit;
+
+    // If can_edit is undefined, default to true (backwards compatibility)
+    if (typeof can_edit === 'undefined') {
+      return;
+    }
+
+    if (!can_edit) {
+      // Disable the form for unauthorized users
+      setTimeout(function() {
+        try {
+          // Disable all form fields
+          frm.disable_form();
+
+          // Add an info message
+          var current_task = state.current_task || {};
+          var assignee_info = '';
+          if (current_task.assigned_to) {
+            assignee_info = __('Assigned to: {0}', [current_task.assigned_to]);
+          } else if (current_task.assigned_role) {
+            assignee_info = __('Assigned to role: {0}', [current_task.assigned_role]);
+          }
+
+          var msg = __('This document is in workflow approval. Only the assigned approver can edit.');
+          if (assignee_info) {
+            msg += ' ' + assignee_info;
+          }
+
+          // Show intro message on the form
+          frm.set_intro(msg, 'blue');
+
+          // Mark that form was disabled by workflow
+          frm.workflow_edit_disabled = true;
+        } catch (e) {
+          console.log('XState Workflow: Error disabling form', e);
+        }
+      }, 100);
     }
   }
 

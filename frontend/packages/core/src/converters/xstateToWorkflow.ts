@@ -55,10 +55,18 @@ export function xstateToWorkflow(
   const edges: WorkflowEdge[] = [];
 
   // Create a map for existing positions if available
+  // Match by node.id (state name) or node.data.label
   const existingPositions = new Map<string, { x: number; y: number }>();
   if (existingLayout) {
     for (const node of existingLayout.nodes) {
-      existingPositions.set(node.data.label, node.position);
+      // Prefer node.id as key (matches state name directly)
+      if (node.id) {
+        existingPositions.set(node.id, node.position);
+      }
+      // Also store by label for backwards compatibility
+      if (node.data?.label) {
+        existingPositions.set(node.data.label, node.position);
+      }
     }
   }
 

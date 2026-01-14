@@ -12,7 +12,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import {
-  nodeTypes,
+  allNodeTypes,
   edgeTypes,
   PropertiesPanel,
   NodePalette,
@@ -67,25 +67,39 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
 
   // Load existing machine
   useEffect(() => {
+    console.log('useEffect triggered, initialMachineId:', initialMachineId);
     if (initialMachineId) {
+      console.log('Calling loadMachine...');
       loadMachine(initialMachineId)
         .then((data) => {
+          console.log('Loaded machine data:', data);
+          console.log('json_config exists:', !!data.json_config);
           setMachineTitle(data.title);
 
-          // If we have visual config, use it
-          if (data.workflow_builder_config) {
-            const config = JSON.parse(data.workflow_builder_config) as WorkflowBuilderConfig;
-            loadConfig(config);
-          } else if (data.json_config) {
-            // Convert from XState config
+          if (data.json_config) {
+            // Always convert from XState config to get full node data (labels, metadata)
             const xstate = JSON.parse(data.json_config);
-            const config = xstateToWorkflow(xstate);
+
+            // Use workflow_builder_config for positions if available
+            let existingLayout: WorkflowBuilderConfig | undefined;
+            if (data.workflow_builder_config) {
+              try {
+                existingLayout = JSON.parse(data.workflow_builder_config) as WorkflowBuilderConfig;
+              } catch {
+                // Ignore parsing errors
+              }
+            }
+
+            const config = xstateToWorkflow(xstate, existingLayout);
+            console.log('Converted config:', JSON.stringify(config, null, 2));
+            console.log('Nodes:', config.nodes.map(n => ({ id: n.id, type: n.type, label: n.data?.label })));
             loadConfig(config);
           }
 
           setHasUnsavedChanges(false);
         })
         .catch((err) => {
+          console.error('Load machine error:', err);
           showError(`Failed to load workflow: ${err.message}`);
         });
     }
@@ -238,7 +252,7 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          nodeTypes={nodeTypes}
+          nodeTypes={allNodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}

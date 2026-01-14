@@ -147,5 +147,14 @@
     }
     return false;
   };
+
+  // Explicit mount - bundle's auto-mount may fail due to timing
+  (function tryMount() {
+    if (window.XStateWorkflowBuilder && window.XStateWorkflowBuilder.mountBuilder) {
+      window.XStateWorkflowBuilder.mountBuilder();
+    } else {
+      setTimeout(tryMount, 50);
+    }
+  })();
 </script>
 {% endblock %}

@@ -88,6 +88,65 @@ def trigger_event_sync(doctype: str, docname: str, event: str, data: str | None 
     return execute_transition(instance_name, event, input_data)
 
 
+def _trigger_event_internal(doctype: str, docname: str, event: str, data: str | None = None) -> dict:
+    """
+    Internal event trigger - used by hooks where permission is already validated.
+    Enqueues transition for background processing WITHOUT permission check.
+
+    Args:
+        doctype: Reference DocType name
+        docname: Reference document name
+        event: XState event to trigger
+        data: Optional JSON string with event data
+
+    Returns:
+        dict with job_id for tracking
+    """
+    input_data = json.loads(data) if data else {}
+
+    instance_name = get_or_create_instance(doctype, docname)
+
+    job = enqueue(
+        execute_transition,
+        queue="default",
+        timeout=300,
+        instance_name=instance_name,
+        event=event,
+        input_data=input_data
+    )
+
+    return {
+        "success": True,
+        "message": _("Event '{0}' queued for processing").format(event),
+        "job_id": job.id if job else None,
+        "instance": instance_name
+    }
+
+
+def _trigger_event_sync_internal(doctype: str, docname: str, event: str, data: str | None = None) -> dict:
+    """
+    Internal synchronous event trigger - used by hooks where permission is already validated.
+    Does NOT perform permission check.
+
+    Args:
+        doctype: Reference DocType name
+        docname: Reference document name
+        event: XState event to trigger
+        data: Optional JSON string or dict with event data
+
+    Returns:
+        dict with transition result
+    """
+    if isinstance(data, str):
+        input_data = json.loads(data) if data else {}
+    else:
+        input_data = data or {}
+
+    instance_name = get_or_create_instance(doctype, docname)
+
+    return execute_transition(instance_name, event, input_data)
+
+
 @frappe.whitelist()
 def get_machine_state(doctype: str, docname: str) -> dict:
     """
@@ -110,7 +169,7 @@ def get_machine_state(doctype: str, docname: str) -> dict:
     machine_info = frappe.db.get_value(
         "State Machine",
         {"attached_doctype": doctype, "is_active": 1},
-        ["name", "auto_start_on_create"],
+        ["name", "auto_start_on_create", "edit_restriction_mode"],
         as_dict=True
     )
 
@@ -141,6 +200,14 @@ def get_machine_state(doctype: str, docname: str) -> dict:
         context
     )
 
+    # Get edit permission info
+    edit_restriction_mode = machine_info.get("edit_restriction_mode", "None") if machine_info else "None"
+    edit_permission_info = _get_edit_permission_info(
+        instance,
+        edit_restriction_mode,
+        frappe.session.user
+    )
+
     return {
         "has_workflow": True,
         "workflow_attached": True,
@@ -153,8 +220,74 @@ def get_machine_state(doctype: str, docname: str) -> dict:
         "last_event": instance.last_event,
         "last_transition_at": str(instance.last_transition_at) if instance.last_transition_at else None,
         "available_events": available_events,
-        "transition_count": instance.transition_count
+        "transition_count": instance.transition_count,
+        "edit_restriction_mode": edit_restriction_mode,
+        "can_user_edit": edit_permission_info["can_edit"],
+        "current_task": edit_permission_info.get("current_task")
     }
+
+
+def _get_edit_permission_info(instance, edit_restriction_mode: str, user: str) -> dict:
+    """
+    Get edit permission info for a workflow instance.
+
+    Args:
+        instance: Machine Instance document or None
+        edit_restriction_mode: The edit restriction mode from State Machine
+        user: The user to check permissions for
+
+    Returns:
+        dict with can_edit boolean and current_task info
+    """
+    result = {"can_edit": True, "current_task": None}
+
+    # No restrictions if mode is None or no instance
+    if edit_restriction_mode == "None" or not instance:
+        return result
+
+    # No restrictions for idle or final workflows
+    if instance.status in ("idle", "final"):
+        return result
+
+    # Get current pending approval task
+    task = frappe.db.get_value(
+        "Approval Task",
+        {
+            "workflow_instance": instance.name,
+            "status": "Pending"
+        },
+        ["name", "assigned_to", "assigned_role"],
+        as_dict=True
+    )
+
+    if not task:
+        return result  # No pending task, no restrictions
+
+    result["current_task"] = {
+        "name": task.name,
+        "assigned_to": task.assigned_to,
+        "assigned_role": task.assigned_role
+    }
+
+    # Check permissions
+    allowed = False
+
+    # Check if user is directly assigned
+    if edit_restriction_mode in ("Assigned Only", "Assigned or Role"):
+        if task.assigned_to and task.assigned_to == user:
+            allowed = True
+
+    # Check if user has the assigned role
+    if edit_restriction_mode in ("Role Only", "Assigned or Role"):
+        if task.assigned_role and task.assigned_role in frappe.get_roles(user):
+            allowed = True
+
+    # System Manager always allowed
+    if "System Manager" in frappe.get_roles(user):
+        allowed = True
+
+    result["can_edit"] = allowed
+    return result
 
 
 @frappe.whitelist()
@@ -2094,6 +2227,120 @@ def validate_workflow_state_for_submit(doc, method=None):
         )
 
 
+def validate_workflow_state_for_save(doc, method=None):
+    """
+    Hook: Validate edit permissions based on workflow state and task assignment.
+
+    Controls who can edit documents when workflow is active:
+    - None: No restrictions (current behavior)
+    - Assigned Only: Only assigned user can edit
+    - Role Only: Only users with assigned role can edit
+    - Assigned or Role: Either assigned user or users with role can edit
+
+    Called from doc_events before_save for all DocTypes.
+
+    Args:
+        doc: Frappe document
+        method: Hook method name
+    """
+    # Allow if flagged to skip check (e.g., system operations)
+    if getattr(doc.flags, "ignore_workflow_edit_check", False):
+        return
+
+    # Skip for new documents
+    if doc.get("__islocal"):
+        return
+
+    # Skip during installation/migration
+    try:
+        if not frappe.db.table_exists("State Machine"):
+            return
+        if not frappe.db.table_exists("Machine Instance"):
+            return
+    except Exception:
+        return
+
+    # Skip for system doctypes
+    skip_doctypes = ["DocType", "Module Def", "Workspace", "Custom Field", "Property Setter"]
+    if doc.doctype in skip_doctypes:
+        return
+
+    # Check if this doctype has a workflow attached
+    machine = frappe.db.get_value(
+        "State Machine",
+        {"attached_doctype": doc.doctype, "is_active": 1},
+        ["name", "edit_restriction_mode"],
+        as_dict=True
+    )
+
+    if not machine:
+        return  # No workflow for this doctype
+
+    edit_mode = machine.get("edit_restriction_mode") or "None"
+
+    # No restrictions if mode is None
+    if edit_mode == "None":
+        return
+
+    # Check if there's a machine instance for this document
+    instance = frappe.db.get_value(
+        "Machine Instance",
+        {
+            "reference_doctype": doc.doctype,
+            "reference_name": doc.name
+        },
+        ["name", "status"],
+        as_dict=True
+    )
+
+    if not instance:
+        return  # No workflow instance, no restrictions
+
+    status = instance.get("status", "")
+
+    # No restrictions for idle or final workflows
+    if status in ("idle", "final"):
+        return
+
+    # Get current pending approval task
+    task = frappe.db.get_value(
+        "Approval Task",
+        {
+            "workflow_instance": instance.name,
+            "status": "Pending"
+        },
+        ["assigned_to", "assigned_role"],
+        as_dict=True
+    )
+
+    if not task:
+        return  # No pending task, no restrictions
+
+    user = frappe.session.user
+    allowed = False
+
+    # Check if user is directly assigned
+    if edit_mode in ("Assigned Only", "Assigned or Role"):
+        if task.assigned_to and task.assigned_to == user:
+            allowed = True
+
+    # Check if user has the assigned role
+    if edit_mode in ("Role Only", "Assigned or Role"):
+        if task.assigned_role and task.assigned_role in frappe.get_roles(user):
+            allowed = True
+
+    # System Manager always allowed
+    if "System Manager" in frappe.get_roles(user):
+        allowed = True
+
+    if not allowed:
+        frappe.throw(
+            _("You are not authorized to edit this document while workflow is active. Only the assigned approver can edit."),
+            frappe.ValidationError,
+            title=_("Edit Restricted")
+        )
+
+
 def check_and_trigger(doc, method=None):
     """
     Hook: Auto-trigger workflow events on document updates.
@@ -2163,7 +2410,8 @@ def check_and_trigger(doc, method=None):
                     # Trigger the configured initial event to kick off the workflow
                     frappe.db.commit()  # Commit instance creation first
                     try:
-                        result = trigger_event_sync(doc.doctype, doc.name, initial_event, "{}")
+                        # Use internal version to avoid permission check during hook execution
+                        result = _trigger_event_sync_internal(doc.doctype, doc.name, initial_event, "{}")
                         if result.get("success"):
                             frappe.msgprint(
                                 _("Workflow transitioned to: {0}").format(result.get("new_state")),
@@ -2191,7 +2439,8 @@ def check_and_trigger(doc, method=None):
             new_value = doc.get(field)
             if new_value in event_mapping:
                 event = event_mapping[new_value]
-                trigger_event(doc.doctype, doc.name, event, json.dumps({"field": field, "value": new_value}))
+                # Use internal version to avoid permission check during hook execution
+                _trigger_event_internal(doc.doctype, doc.name, event, json.dumps({"field": field, "value": new_value}))
 
 
 def post_transition_actions(instance, event: str, from_state: str, to_state: str, ref_doc):

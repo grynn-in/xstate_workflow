@@ -35,12 +35,15 @@ function getViewerConfig(): { machineId: string; doctype: string; docname: strin
 
 // Mount the builder application
 function mountBuilder() {
+  console.log('mountBuilder called');
   const root = document.getElementById('workflow-builder-root');
   if (!root) {
+    console.log('No workflow-builder-root found');
     return false;
   }
 
   const config = getBuilderConfig();
+  console.log('Builder config:', config);
 
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
