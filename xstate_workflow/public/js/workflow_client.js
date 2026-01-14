@@ -108,7 +108,88 @@
 
       // Update page indicator
       update_page_indicator(frm, state);
+
+      // Control Submit button visibility based on workflow state
+      update_submit_button_visibility(frm, state);
     });
+  }
+
+  /**
+   * Control Submit button visibility based on workflow state
+   * - Hide Submit when workflow is in non-approved final state (rejected)
+   * - Hide Submit when workflow is active/pending (not yet approved)
+   * - Allow Submit when workflow is final AND approved
+   * - Don't touch anything for idle/draft state (workflow not started)
+   */
+  function update_submit_button_visibility(frm, state) {
+    // Only for saved, non-submitted documents that are submittable
+    if (frm.doc.__islocal || frm.doc.docstatus !== 0) return;
+    if (!frm.meta.is_submittable) return;
+
+    var current_state = (state.current_state || '').toLowerCase();
+    var status = (state.status || '').toLowerCase();
+
+    // Don't interfere with idle/draft state - workflow hasn't started yet
+    if (status === 'idle' || current_state === 'draft') {
+      return;
+    }
+
+    var approved_states = ['approved', 'completed', 'done', 'accepted'];
+
+    // Determine if submit should be allowed
+    var allow_submit = false;
+
+    if (status === 'final') {
+      // Workflow is complete - only allow if in approved state
+      allow_submit = approved_states.some(function(s) {
+        return current_state.includes(s);
+      });
+    }
+    // If status is 'active' (pending approval), block submit
+
+    if (!allow_submit) {
+      // Hide Submit option from menu and primary action
+      hide_submit_button(frm, current_state, status);
+    }
+  }
+
+  /**
+   * Hide the Submit button/menu item and show message
+   */
+  function hide_submit_button(frm, current_state, status) {
+    // Hide Submit from page actions dropdown
+    setTimeout(function() {
+      try {
+        // Find and hide Submit menu item (be very specific to avoid hiding Save)
+        var $menu = frm.page.menu;
+        if ($menu && $menu.length) {
+          $menu.find('a').each(function() {
+            var text = $(this).text().trim();
+            if (text === 'Submit' || text === __('Submit')) {
+              $(this).closest('li').hide();
+            }
+          });
+        }
+
+        // Also check inner-group-button for Submit
+        frm.$wrapper.find('.btn-group .dropdown-menu a').each(function() {
+          var text = $(this).text().trim();
+          if (text === 'Submit' || text === __('Submit')) {
+            $(this).closest('li').hide();
+          }
+        });
+
+        // Hide Submit button ONLY if it's explicitly the Submit button (not Save)
+        if (frm.page.btn_primary && frm.page.btn_primary.length) {
+          var btnText = frm.page.btn_primary.text().trim();
+          if (btnText === 'Submit' || btnText === __('Submit')) {
+            frm.page.btn_primary.hide();
+          }
+        }
+      } catch (e) {
+        console.log('XState Workflow: Error hiding submit button', e);
+      }
+    }, 100);
   }
 
   /**
@@ -905,6 +986,16 @@
     if (cur_frm.doc.__islocal) return;
 
     var doc_key = cur_frm.doc.doctype + ':' + cur_frm.doc.name;
+
+    // If document changed, reset the workflow section flag and remove old tab
+    if (last_checked_doc && last_checked_doc !== doc_key) {
+      // Remove old workflow tab from previous document
+      $('.xstate-workflow-tab').remove();
+      $('.xstate-workflow-pane').remove();
+      cur_frm.workflow_section_added = false;
+      cur_frm.workflow_submit_blocked_msg = false;
+    }
+
     if (last_checked_doc === doc_key && cur_frm.workflow_section_added) return;
 
     var attached_doctypes = frappe.boot.xstate_workflow?.attached_doctypes || [];

@@ -11,6 +11,7 @@ class StateMachine(Document):
     def validate(self):
         self.validate_json_config()
         self.validate_logic_module()
+        self.validate_final_states_for_submittable()
         self.modified_by = frappe.session.user
 
     def validate_json_config(self):
@@ -45,6 +46,62 @@ class StateMachine(Document):
                       "Make sure it exists before using this machine.").format(self.logic_module),
                     indicator="orange"
                 )
+
+    def validate_final_states_for_submittable(self):
+        """
+        Validate that workflows attached to submittable doctypes have proper final states.
+
+        For submittable documents, the workflow must have at least one final state
+        that represents an approved/completed status to allow document submission.
+        """
+        if not self.attached_doctype:
+            return
+
+        # Check if the attached doctype is submittable
+        try:
+            meta = frappe.get_meta(self.attached_doctype)
+            if not meta.is_submittable:
+                return  # Not submittable, no validation needed
+        except Exception:
+            return  # DocType might not exist yet
+
+        # Parse config and check for approved final states
+        try:
+            config = json.loads(self.json_config or "{}")
+            states = config.get("states", {})
+
+            # Look for final states that represent approval
+            approved_state_names = ["approved", "completed", "done", "accepted", "submitted"]
+            has_approved_final = False
+
+            for state_name, state_config in states.items():
+                if state_config.get("type") == "final":
+                    # Check if state name indicates approval
+                    if state_name.lower() in approved_state_names:
+                        has_approved_final = True
+                        break
+
+                    # Also check domain_node config for submit type
+                    domain_node = state_config.get("meta", {}).get("domain_node", {})
+                    if domain_node.get("type") == "submit":
+                        has_approved_final = True
+                        break
+
+                    # Check final_status in domain_node
+                    if domain_node.get("final_status") in ["Approved", "Completed", "Done"]:
+                        has_approved_final = True
+                        break
+
+            if not has_approved_final:
+                frappe.throw(
+                    _("Workflow for submittable doctype '{0}' must have a final state "
+                      "that allows submission (e.g., 'approved', 'completed', or a state with "
+                      "type='submit' in domain_node).").format(self.attached_doctype),
+                    title=_("Invalid Workflow Configuration")
+                )
+
+        except json.JSONDecodeError:
+            pass  # JSON validation is done elsewhere
 
     def before_save(self):
         # Auto-increment version on config change

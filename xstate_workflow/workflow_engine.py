@@ -112,10 +112,15 @@ def get_machine_state(doctype: str, docname: str) -> dict:
             "message": _("No workflow attached to this document")
         }
 
+    # Build context with doctype/docname for guard evaluation
+    context = json.loads(instance.context or "{}")
+    context["doctype"] = doctype
+    context["docname"] = docname
+
     available_events = get_next_events(
         instance.machine,
         instance.current_state,
-        json.loads(instance.context or "{}")
+        context
     )
 
     return {
@@ -157,10 +162,15 @@ def get_machine_state_with_history(doctype: str, docname: str) -> dict:
             "message": _("No workflow attached to this document")
         }
 
+    # Build context with doctype/docname for guard evaluation
+    context = json.loads(instance.context or "{}")
+    context["doctype"] = doctype
+    context["docname"] = docname
+
     available_events = get_next_events(
         instance.machine,
         instance.current_state,
-        json.loads(instance.context or "{}")
+        context
     )
 
     # Parse transition log
@@ -360,19 +370,30 @@ def get_next_events(machine_name: str, current_state: str, context: dict = None)
                 event_info["actions"] = transition["actions"] if isinstance(
                     transition["actions"], list) else [transition["actions"]]
         elif isinstance(transition, list):
-            # Multiple possible transitions (conditional)
+            # Multiple possible transitions (conditional) - at least ONE guard must pass
+            event_info["is_conditional"] = True
             for t in transition:
                 if isinstance(t, dict):
-                    event_info["target"] = t.get("target")
+                    if not event_info["target"]:  # Use first target as default
+                        event_info["target"] = t.get("target")
                     if t.get("guard"):
                         event_info["guards"].append(t["guard"])
 
         # Check if guards pass
-        guards_pass = True
-        for guard_name in event_info["guards"]:
-            if not evaluate_guard(machine, guard_name, context, {"type": event_name}):
-                guards_pass = False
-                break
+        if event_info.get("is_conditional") and event_info["guards"]:
+            # For conditional transitions, at least ONE guard must pass
+            guards_pass = False
+            for guard_name in event_info["guards"]:
+                if evaluate_guard(machine, guard_name, context, {"type": event_name}):
+                    guards_pass = True
+                    break
+        else:
+            # For regular transitions, ALL guards must pass
+            guards_pass = True
+            for guard_name in event_info["guards"]:
+                if not evaluate_guard(machine, guard_name, context, {"type": event_name}):
+                    guards_pass = False
+                    break
 
         event_info["enabled"] = guards_pass
         events.append(event_info)
@@ -1032,18 +1053,28 @@ def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_
 
     node_type = domain_node.get("type")
 
-    # Handle auto-submit on final approval for submittable doctypes
-    if node_type == "end" and domain_node.get("final_status") == "Approved":
+    # Handle "submit" node type - auto-submit document when workflow reaches this state
+    if node_type == "submit":
         if ref_doc.meta.is_submittable and ref_doc.docstatus == 0:
             try:
+                # Set flag to bypass our own validation hook
+                ref_doc.flags.ignore_workflow_submit_check = True
                 ref_doc.submit()
                 frappe.msgprint(
-                    _("Document submitted automatically"),
+                    _("Document submitted by workflow approval"),
                     indicator="green",
                     alert=True
                 )
             except Exception as e:
-                frappe.log_error(f"Auto-submit failed for {ref_doc.doctype} {ref_doc.name}: {e}")
+                frappe.log_error(f"Workflow auto-submit failed for {ref_doc.doctype} {ref_doc.name}: {e}")
+                frappe.throw(
+                    _("Failed to submit document: {0}").format(str(e)),
+                    title=_("Auto-Submit Failed")
+                )
+
+    # NOTE: Legacy auto-submit on "end" node with final_status="Approved" has been removed.
+    # Use node_type="submit" for auto-submit behavior.
+    # With node_type="end" and approved state, manual submit is allowed via validate_workflow_state_for_submit.
 
     if node_type == "approval":
         # Create approval task
@@ -1304,9 +1335,6 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
         instance.last_transition_at = frappe.utils.now()
         instance.status = "final" if is_final else "active"
 
-        # Log transition
-        instance.log_transition(event, old_state, target_state, success=True)
-
         # Reload to get latest version before save to avoid conflicts
         instance.reload()
         instance.current_state = target_state
@@ -1314,6 +1342,9 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
         instance.last_event = event
         instance.last_transition_at = frappe.utils.now()
         instance.status = "final" if is_final else "active"
+
+        # Log transition AFTER reload so it's not cleared
+        instance.log_transition(event, old_state, target_state, success=True)
         instance.save(ignore_permissions=True)
 
         # Post-transition hooks
@@ -1903,7 +1934,7 @@ def execute_actions(action_names: list | str, actions: dict,
     return context
 
 
-def evaluate_guard(machine_doc, guard_name: str, context: dict, event: dict) -> bool:
+def evaluate_guard(machine_doc, guard_name: str, context: dict, event: dict, ref_doc=None) -> bool:
     """
     Evaluate a single guard by name.
 
@@ -1912,11 +1943,22 @@ def evaluate_guard(machine_doc, guard_name: str, context: dict, event: dict) -> 
         guard_name: Guard name
         context: Current context
         event: Event data
+        ref_doc: Reference document (optional, will be loaded from context if not provided)
 
     Returns:
         Guard result (True/False)
     """
-    guards = build_guards(machine_doc, None)
+    # Load ref_doc if not provided but context has doctype/docname
+    if ref_doc is None:
+        doctype = context.get("doctype") or (machine_doc.attached_doctype if machine_doc else None)
+        docname = context.get("docname") or context.get("name")
+        if doctype and docname:
+            try:
+                ref_doc = frappe.get_doc(doctype, docname)
+            except Exception:
+                pass  # Document might not exist
+
+    guards = build_guards(machine_doc, ref_doc)
     guard_fn = guards.get(guard_name)
 
     if guard_fn:
@@ -1932,7 +1974,11 @@ def evaluate_guard(machine_doc, guard_name: str, context: dict, event: dict) -> 
 def validate_workflow_state_for_submit(doc, method=None):
     """
     Hook: Validate workflow state before document submission.
-    Blocks submission if workflow state is not approved.
+
+    Hybrid logic:
+    - If workflow has "submit" node → auto-submit happens there (this hook bypassed via flag)
+    - If no "submit" node but workflow is approved → allow manual submit
+    - If workflow is pending or rejected → block manual submit
 
     Called from doc_events before_submit for all DocTypes.
 
@@ -1940,6 +1986,10 @@ def validate_workflow_state_for_submit(doc, method=None):
         doc: Frappe document
         method: Hook method name
     """
+    # Allow if flagged by workflow auto-submit (bypasses this check)
+    if getattr(doc.flags, "ignore_workflow_submit_check", False):
+        return
+
     # Skip during installation/migration
     try:
         if not frappe.db.table_exists("State Machine"):
@@ -1971,34 +2021,40 @@ def validate_workflow_state_for_submit(doc, method=None):
     )
 
     if not instance:
-        return  # No workflow instance, allow submission
+        # No workflow instance yet - block submission, workflow should be triggered first
+        frappe.throw(
+            _("Cannot submit {0}: Workflow approval required. Please start the approval process first.").format(
+                doc.doctype
+            ),
+            title=_("Workflow Required")
+        )
 
     current_state = instance.get("current_state", "").lower()
     status = instance.get("status", "")
 
-    # Define states that block submission
-    blocked_states = ["rejected", "cancelled", "denied", "declined"]
+    # Define states that allow manual submission (when no submit node)
+    approved_states = ["approved", "completed", "done", "accepted"]
 
-    # Define states that allow submission
-    allowed_states = ["approved", "completed", "done", "accepted"]
+    # Allow if workflow is final AND in approved state
+    if status == "final" and current_state in approved_states:
+        return  # Allow manual submit
 
-    # Check if in a blocked state
-    if current_state in blocked_states:
+    # Block if workflow ended in non-approved state (rejected, etc.)
+    if status == "final":
         frappe.throw(
-            _("Cannot submit {0} {1}: Workflow state is '{2}'. Document was rejected in the approval workflow.").format(
+            _("Cannot submit {0} {1}: Workflow ended in '{2}' state.").format(
                 doc.doctype, doc.name, instance.get("current_state")
             ),
-            title=_("Workflow Rejection")
+            title=_("Workflow Rejected")
         )
 
-    # If workflow is active (not final), check if approved
-    if status == "active":
-        frappe.throw(
-            _("Cannot submit {0} {1}: Workflow approval is pending. Current state: '{2}'").format(
-                doc.doctype, doc.name, instance.get("current_state")
-            ),
-            title=_("Pending Approval")
-        )
+    # Block if workflow is still pending (idle or active)
+    frappe.throw(
+        _("Cannot submit {0} {1}: Workflow approval pending. Current state: '{2}'").format(
+            doc.doctype, doc.name, instance.get("current_state")
+        ),
+        title=_("Approval Required")
+    )
 
     # If status is final but not in allowed states, block
     if status == "final" and current_state not in allowed_states:
