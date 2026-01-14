@@ -16,6 +16,20 @@ def get_context(context):
     Displays the current runtime state of a document's workflow.
     All data is loaded server-side to avoid CSRF/API issues.
     """
+    # Initialize ALL context variables FIRST before any code that could fail
+    context.no_cache = 1
+    context.no_breadcrumbs = 1
+    context.full_width = 1
+    context.title = _("Workflow Viewer")
+    context.workflow_state = {"has_workflow": False}
+    context.machine_config = {}
+    context.transition_history = []
+    context.all_states = []
+    context.error = None
+    context.machine_id = ""
+    context.doctype = ""
+    context.docname = ""
+
     # Check if user is logged in
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login to access the Workflow Viewer"), frappe.PermissionError)
@@ -23,27 +37,15 @@ def get_context(context):
     # Parse URL params - machine_id comes from path, others from query string
     # URL format: /xstate-viewer/<machine_id>?doctype=X&docname=Y
     path_parts = frappe.request.path.split("/")
-    machine_id = path_parts[-1] if len(path_parts) > 2 else ""
-    doctype = frappe.form_dict.get("doctype") or ""
-    docname = frappe.form_dict.get("docname") or ""
-
-    context.title = _("Workflow Viewer")
-    context.machine_id = machine_id
-    context.doctype = doctype
-    context.docname = docname
-
-    # Initialize with empty data
-    context.workflow_state = {"has_workflow": False}
-    context.machine_config = {}
-    context.transition_history = []
-    context.all_states = []
-    context.error = None
+    context.machine_id = path_parts[-1] if len(path_parts) > 2 else ""
+    context.doctype = frappe.form_dict.get("doctype") or ""
+    context.docname = frappe.form_dict.get("docname") or ""
 
     try:
         # Load workflow state if we have doctype and docname
-        if doctype and docname:
+        if context.doctype and context.docname:
             from xstate_workflow.workflow_engine import get_machine_state_with_history
-            context.workflow_state = get_machine_state_with_history(doctype, docname)
+            context.workflow_state = get_machine_state_with_history(context.doctype, context.docname)
 
             # Extract transition history and all states from the response
             if context.workflow_state.get("has_workflow"):
@@ -51,10 +53,10 @@ def get_context(context):
                 context.all_states = context.workflow_state.get("all_states", [])
 
         # Load machine config if we have machine_id
-        if machine_id:
+        if context.machine_id:
             from xstate_workflow.workflow_engine import get_machine
             try:
-                context.machine_config = get_machine(machine_id)
+                context.machine_config = get_machine(context.machine_id)
                 # Parse states from JSON config for diagram
                 if context.machine_config.get("json_config"):
                     config = json.loads(context.machine_config["json_config"])
@@ -66,10 +68,3 @@ def get_context(context):
         context.error = str(e)
     except Exception as e:
         context.error = _("Error loading workflow: {0}").format(str(e))
-
-    # Add meta tags
-    context.no_cache = 1
-    context.no_breadcrumbs = 1
-    context.full_width = 1
-
-    return context
