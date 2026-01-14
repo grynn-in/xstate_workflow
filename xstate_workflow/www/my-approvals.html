@@ -71,6 +71,82 @@
         </div>
     </div>
 
+    <!-- Filters (Frappe-style) -->
+    <div class="filter-section mb-4">
+        <div class="filter-bar">
+            <div class="active-tags" id="active-filters"></div>
+            <button type="button" class="filter-edit-btn" id="toggle-filters">
+                <svg class="filter-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M1.5 1.5h13v2l-5 4v6l-3 1.5v-7.5l-5-4z" fill="none" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+                Edit Filters
+            </button>
+            <button type="button" class="filter-clear-btn" id="clear-filters" style="display:none;">
+                Clear Filters
+            </button>
+        </div>
+
+        <div class="filter-edit-area" id="filter-panel" style="display:none;">
+            <!-- DocType Filter Row -->
+            <div class="filter-row">
+                <span class="filter-field-label">Document Type</span>
+                <select class="filter-input" id="filter-doctype">
+                    <option value="">All</option>
+                </select>
+                <button type="button" class="filter-row-remove" data-filter="doctype" title="Remove">&times;</button>
+            </div>
+
+            <!-- Sort Row -->
+            <div class="filter-row">
+                <span class="filter-field-label">Sort by Modified</span>
+                <select class="filter-input" id="sort-modified">
+                    <option value="">Default</option>
+                    <option value="desc">Newest First</option>
+                    <option value="asc">Oldest First</option>
+                </select>
+                <button type="button" class="filter-row-remove" data-filter="sort" title="Remove">&times;</button>
+            </div>
+
+            <!-- Created Date Filter Row -->
+            <div class="filter-row">
+                <span class="filter-field-label">Created Date</span>
+                <select class="filter-input filter-op" id="filter-created-op">
+                    <option value="">is</option>
+                    <option value="=">equals</option>
+                    <option value="!=">not equals</option>
+                    <option value="<">before</option>
+                    <option value=">">after</option>
+                    <option value="between">between</option>
+                </select>
+                <input type="date" class="filter-input" id="filter-created-date1">
+                <span class="filter-date-sep" id="created-separator" style="display:none;">and</span>
+                <input type="date" class="filter-input" id="filter-created-date2" style="display:none;">
+                <button type="button" class="filter-row-remove" data-filter="created" title="Remove">&times;</button>
+            </div>
+
+            <!-- Due Date Filter Row -->
+            <div class="filter-row">
+                <span class="filter-field-label">Due Date</span>
+                <select class="filter-input filter-op" id="filter-due-op">
+                    <option value="">is</option>
+                    <option value="=">equals</option>
+                    <option value="!=">not equals</option>
+                    <option value="<">before</option>
+                    <option value=">">after</option>
+                    <option value="between">between</option>
+                </select>
+                <input type="date" class="filter-input" id="filter-due-date1">
+                <span class="filter-date-sep" id="due-separator" style="display:none;">and</span>
+                <input type="date" class="filter-input" id="filter-due-date2" style="display:none;">
+                <button type="button" class="filter-row-remove" data-filter="due" title="Remove">&times;</button>
+            </div>
+
+            <div class="filter-actions">
+                <button type="button" class="btn-apply-filters" id="apply-filters">Apply</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Tasks List -->
     <div class="approval-tasks" id="approval-tasks">
         <div class="loading-indicator text-center py-5">
@@ -193,56 +269,6 @@
     font-size: 11px;
 }
 
-.task-doc-details {
-    background: #f8fafc;
-    border-radius: 6px;
-    padding: 10px 12px;
-    margin: 10px 0;
-    border: 1px solid #e2e8f0;
-}
-
-.task-doc-details .detail-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 6px 16px;
-}
-
-.task-doc-details .detail-item {
-    font-size: 12px;
-}
-
-.task-doc-details .detail-item.last-approver {
-    grid-column: span 2;
-    margin-top: 4px;
-    padding-top: 6px;
-    border-top: 1px solid #e2e8f0;
-}
-
-.task-doc-details .detail-label {
-    color: #64748b;
-    margin-right: 4px;
-}
-
-.task-doc-details .detail-value {
-    color: #1e293b;
-    font-weight: 500;
-}
-
-.access-reason {
-    font-size: 11px;
-    color: #64748b;
-    margin-top: 4px;
-}
-
-.access-reason .access-badge {
-    display: inline-block;
-    background: #dbeafe;
-    color: #1e40af;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: 500;
-}
-
 .stat-card {
     background: #fff;
     border-radius: 8px;
@@ -290,39 +316,110 @@
     font-size: 14px;
 }
 
-.approval-task-card {
+/* Task List - Row Layout */
+.task-list {
     background: #fff;
     border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 12px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    cursor: pointer;
-    transition: box-shadow 0.2s;
+    overflow: hidden;
 }
 
-.approval-task-card:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-}
-
-.approval-task-card.overdue {
-    border-left: 4px solid #ef4444;
-}
-
-.task-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 12px;
-}
-
-.task-title {
+.task-list-header {
+    display: grid;
+    grid-template-columns: minmax(200px, 2fr) 100px 120px minmax(120px, 1fr) 140px;
+    gap: 16px;
+    padding: 12px 16px;
+    background: var(--fg-color, #f5f7fa);
+    border-bottom: 1px solid var(--border-color, #d1d8dd);
+    font-size: 12px;
     font-weight: 600;
-    font-size: 16px;
-    margin: 0;
+    color: var(--text-muted, #5a6370);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    align-items: center;
+}
+
+.task-list-header > div {
+    text-align: left;
+}
+
+.task-list-header > div:last-child {
+    text-align: right;
+}
+
+.task-row {
+    display: grid;
+    grid-template-columns: minmax(200px, 2fr) 100px 120px minmax(120px, 1fr) 140px;
+    gap: 16px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color, #e9ecef);
+    cursor: pointer;
+    transition: background 0.15s;
+    align-items: center;
+}
+
+.task-row:last-child {
+    border-bottom: none;
+}
+
+.task-row:hover {
+    background: #eef2f7;
+}
+
+.task-row.overdue {
+    border-left: 3px solid #ef4444;
+}
+
+/* Task Row Cells */
+.task-cell {
+    min-width: 0;
+    text-align: left;
+}
+
+.task-cell-doc {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.task-doc-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-color, #333);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.task-doc-link {
+    font-size: 13px;
+    color: var(--primary, #2490ef);
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.task-doc-link:hover {
+    text-decoration: underline;
+}
+
+.task-doc-meta {
+    font-size: 12px;
+    color: var(--text-muted, #64748b);
+}
+
+.task-cell-status {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-start;
 }
 
 .task-priority {
-    padding: 4px 8px;
+    display: inline-block;
+    padding: 3px 10px;
     border-radius: 4px;
     font-size: 12px;
     font-weight: 500;
@@ -333,61 +430,105 @@
 .task-priority.high { background: #fee2e2; color: #991b1b; }
 .task-priority.urgent { background: #7f1d1d; color: #fff; }
 
-.task-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-    color: #6b7280;
-    font-size: 14px;
-    margin-bottom: 8px;
+.task-status {
+    font-size: 12px;
+    color: var(--text-muted, #64748b);
 }
 
-.task-assignee-info {
-    color: #6b7280;
+.task-cell-date {
     font-size: 13px;
-    margin-bottom: 12px;
-    padding: 8px 12px;
-    background: #f8fafc;
-    border-radius: 6px;
+    color: var(--text-color, #333);
 }
 
-.task-actions-inline {
-    margin-top: 12px;
+.task-cell-date.overdue-text {
+    color: #ef4444;
+    font-weight: 500;
+}
+
+.task-cell-owner {
+    font-size: 13px;
+    color: var(--text-color, #333);
+}
+
+.task-owner-sub {
+    font-size: 12px;
+    color: var(--text-muted, #64748b);
+    margin-top: 2px;
+}
+
+.task-cell-actions {
     display: flex;
+    text-align: right;
+    gap: 6px;
     flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
+    justify-content: flex-end;
 }
 
-.task-status-badge {
-    margin-top: 12px;
+.task-cell-actions .btn {
+    font-size: 12px;
+    padding: 5px 12px;
+}
+
+/* Expanded Row for Actions */
+.task-row-expanded {
+    background: #eef2f7;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color, #e9ecef);
+}
+
+.task-comment-form {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    gap: 12px;
+    align-items: flex-start;
 }
 
-.comment-box {
-    margin-top: 12px;
-    padding: 12px;
-    background: #f8fafc;
-    border-radius: 6px;
-    border: 1px solid #e2e8f0;
-}
-
-.comment-box textarea {
-    width: 100%;
-    border: 1px solid #d1d5db;
+.task-comment-form textarea {
+    flex: 1;
+    border: 1px solid var(--border-color, #d1d8dd);
     border-radius: 4px;
     padding: 8px;
-    margin-bottom: 8px;
+    font-size: 12px;
     resize: vertical;
     min-height: 60px;
 }
 
-.comment-box .comment-actions {
+.task-comment-form .btn-group {
     display: flex;
-    gap: 8px;
-    justify-content: flex-end;
+    gap: 6px;
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+    .task-list-header {
+        display: none;
+    }
+    .task-row {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 16px;
+    }
+    .task-cell-doc {
+        grid-column: span 2;
+    }
+    .task-cell-actions {
+        grid-column: span 2;
+        justify-content: flex-start;
+        padding-top: 8px;
+        border-top: 1px solid var(--border-color, #e9ecef);
+    }
+}
+
+@media (max-width: 576px) {
+    .task-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+    .task-cell-doc,
+    .task-cell-status,
+    .task-cell-date,
+    .task-cell-owner,
+    .task-cell-actions {
+        grid-column: span 1;
+    }
 }
 
 .btn-approve {
@@ -467,6 +608,208 @@
 body.modal-open {
     overflow: hidden;
 }
+
+/* Frappe-style Filters */
+.filter-section {
+    margin-bottom: 16px;
+}
+
+.filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--fg-color, #f5f7fa);
+    border-radius: 6px;
+    min-height: 40px;
+    flex-wrap: wrap;
+}
+
+.filter-edit-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--text-muted, #74808b);
+    font-size: 12px;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.filter-edit-btn:hover {
+    background: var(--bg-color, #fff);
+    color: var(--text-color, #333);
+}
+
+.filter-edit-btn .filter-icon {
+    width: 14px;
+    height: 14px;
+}
+
+.filter-clear-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted, #74808b);
+    font-size: 12px;
+    padding: 4px 8px;
+    cursor: pointer;
+    margin-left: auto;
+}
+
+.filter-clear-btn:hover {
+    color: var(--red-500, #e53e3e);
+}
+
+/* Active filter tags */
+.active-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.active-tags .filter-tag {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-color, #fff);
+    border: 1px solid var(--border-color, #d1d8dd);
+    color: var(--text-color, #333);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.active-tags .filter-tag .tag-field {
+    color: var(--text-muted, #74808b);
+    margin-right: 4px;
+}
+
+.active-tags .filter-tag .tag-value {
+    font-weight: 500;
+}
+
+.active-tags .filter-tag .tag-remove {
+    margin-left: 6px;
+    cursor: pointer;
+    color: var(--text-muted, #74808b);
+    font-size: 14px;
+    line-height: 1;
+}
+
+.active-tags .filter-tag .tag-remove:hover {
+    color: var(--red-500, #e53e3e);
+}
+
+/* Filter edit area */
+.filter-edit-area {
+    background: var(--fg-color, #f5f7fa);
+    border-radius: 0 0 6px 6px;
+    margin-top: -6px;
+    padding: 12px;
+    border-top: 1px solid var(--border-color, #d1d8dd);
+}
+
+.filter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-color, #e9ecef);
+}
+
+.filter-row:last-of-type {
+    border-bottom: none;
+}
+
+.filter-field-label {
+    min-width: 120px;
+    font-size: 12px;
+    color: var(--text-muted, #74808b);
+    font-weight: 500;
+}
+
+.filter-input {
+    background: var(--bg-color, #fff);
+    border: 1px solid var(--border-color, #d1d8dd);
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 12px;
+    color: var(--text-color, #333);
+    min-width: 100px;
+}
+
+.filter-input:focus {
+    outline: none;
+    border-color: var(--primary, #2490ef);
+    box-shadow: 0 0 0 2px rgba(36, 144, 239, 0.1);
+}
+
+.filter-input.filter-op {
+    min-width: 90px;
+}
+
+.filter-date-sep {
+    font-size: 12px;
+    color: var(--text-muted, #74808b);
+}
+
+.filter-row-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted, #74808b);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 6px;
+    line-height: 1;
+    border-radius: 4px;
+    margin-left: auto;
+}
+
+.filter-row-remove:hover {
+    background: var(--bg-color, #fff);
+    color: var(--red-500, #e53e3e);
+}
+
+.filter-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 12px;
+    margin-top: 8px;
+    border-top: 1px solid var(--border-color, #e9ecef);
+}
+
+.btn-apply-filters {
+    background: var(--primary, #2490ef);
+    color: #fff;
+    border: none;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn-apply-filters:hover {
+    background: var(--primary-dark, #1a73e8);
+}
+
+@media (max-width: 768px) {
+    .filter-row {
+        flex-wrap: wrap;
+    }
+    .filter-field-label {
+        min-width: 100%;
+        margin-bottom: 4px;
+    }
+    .filter-row-remove {
+        margin-left: 0;
+    }
+}
 </style>
 
 <script>
@@ -477,12 +820,18 @@ frappe.ready(function() {
     let pendingAction = {};
     let reassignTaskName = null;
     const currentUser = frappe.session.user;
+    let currentFilters = {};
+    let currentSort = '';
 
     // Initialize
     loadUserInfo();
     loadStats();
+    loadDocTypeOptions();
+    initFiltersFromURL();
     loadTasks();
     updateActiveStates();
+    setupFilterEventListeners();
+    setupDateOperatorListeners();
 
     function loadUserInfo() {
         frappe.call({
@@ -558,13 +907,25 @@ frappe.ready(function() {
         const container = document.getElementById('approval-tasks');
         container.innerHTML = '<div class="loading-indicator text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>';
 
+        const args = {
+            status: currentStatus,
+            limit: pageSize,
+            offset: currentPage * pageSize
+        };
+
+        // Add filters if any are set
+        if (Object.keys(currentFilters).length > 0) {
+            args.filters = JSON.stringify(currentFilters);
+        }
+
+        // Add sort if set
+        if (currentSort) {
+            args.order_by = 'modified ' + currentSort;
+        }
+
         frappe.call({
             method: 'xstate_workflow.api.approval.get_my_approval_tasks',
-            args: {
-                status: currentStatus,
-                limit: pageSize,
-                offset: currentPage * pageSize
-            },
+            args: args,
             callback: function(r) {
                 if (r.message && r.message.tasks) {
                     renderTasks(r.message.tasks, r.message.total);
@@ -574,6 +935,317 @@ frappe.ready(function() {
             }
         });
     }
+
+    // ========== Filter Functions ==========
+
+    function loadDocTypeOptions() {
+        frappe.call({
+            method: 'xstate_workflow.api.approval.get_available_doctypes',
+            callback: function(r) {
+                if (r.message) {
+                    const select = document.getElementById('filter-doctype');
+                    r.message.forEach(function(dt) {
+                        const option = document.createElement('option');
+                        option.value = dt;
+                        option.textContent = dt;
+                        select.appendChild(option);
+                    });
+                }
+            }
+        });
+    }
+
+    function initFiltersFromURL() {
+        const params = new URLSearchParams(window.location.search);
+
+        if (params.get('doctype')) {
+            document.getElementById('filter-doctype').value = params.get('doctype');
+        }
+        if (params.get('sort_modified')) {
+            document.getElementById('sort-modified').value = params.get('sort_modified');
+            currentSort = params.get('sort_modified');
+        }
+        if (params.get('created_op')) {
+            document.getElementById('filter-created-op').value = params.get('created_op');
+            toggleDateField('created', params.get('created_op'));
+        }
+        if (params.get('created_date1')) {
+            document.getElementById('filter-created-date1').value = params.get('created_date1');
+        }
+        if (params.get('created_date2')) {
+            document.getElementById('filter-created-date2').value = params.get('created_date2');
+        }
+        if (params.get('due_op')) {
+            document.getElementById('filter-due-op').value = params.get('due_op');
+            toggleDateField('due', params.get('due_op'));
+        }
+        if (params.get('due_date1')) {
+            document.getElementById('filter-due-date1').value = params.get('due_date1');
+        }
+        if (params.get('due_date2')) {
+            document.getElementById('filter-due-date2').value = params.get('due_date2');
+        }
+        if (params.get('status')) {
+            currentStatus = params.get('status');
+        }
+
+        // Build filters from URL params
+        currentFilters = buildFiltersObject();
+        updateActiveFilterBadges();
+
+        // Show filter panel if any filters are active
+        if (Object.keys(currentFilters).length > 0 || currentSort) {
+            document.getElementById('filter-panel').style.display = 'block';
+        }
+    }
+
+    function toggleDateField(prefix, op) {
+        const date2 = document.getElementById('filter-' + prefix + '-date2');
+        const separator = document.getElementById(prefix + '-separator');
+        if (op === 'between') {
+            date2.style.display = 'block';
+            separator.style.display = 'inline';
+        } else {
+            date2.style.display = 'none';
+            separator.style.display = 'none';
+        }
+    }
+
+    function setupDateOperatorListeners() {
+        document.getElementById('filter-created-op').addEventListener('change', function() {
+            toggleDateField('created', this.value);
+        });
+        document.getElementById('filter-due-op').addEventListener('change', function() {
+            toggleDateField('due', this.value);
+        });
+    }
+
+    function buildFiltersObject() {
+        const filters = {};
+
+        const doctype = document.getElementById('filter-doctype').value;
+        if (doctype) {
+            filters.reference_doctype = doctype;
+        }
+
+        // Created date filter with operator
+        const createdOp = document.getElementById('filter-created-op').value;
+        const createdDate1 = document.getElementById('filter-created-date1').value;
+        const createdDate2 = document.getElementById('filter-created-date2').value;
+        if (createdOp && createdDate1) {
+            filters.creation = buildDateFilter(createdOp, createdDate1, createdDate2);
+        }
+
+        // Due date filter with operator
+        const dueOp = document.getElementById('filter-due-op').value;
+        const dueDate1 = document.getElementById('filter-due-date1').value;
+        const dueDate2 = document.getElementById('filter-due-date2').value;
+        if (dueOp && dueDate1) {
+            filters.due_date = buildDateFilter(dueOp, dueDate1, dueDate2);
+        }
+
+        // Sort is handled separately
+        currentSort = document.getElementById('sort-modified').value;
+
+        return filters;
+    }
+
+    function buildDateFilter(op, date1, date2) {
+        switch(op) {
+            case '=':
+                // For equals, match the entire day
+                return ['between', [date1, date1 + ' 23:59:59']];
+            case '!=':
+                return ['!=', date1];
+            case '<':
+                return ['<', date1];
+            case '>':
+                return ['>', date1 + ' 23:59:59'];
+            case 'between':
+                if (date2) {
+                    return ['between', [date1, date2 + ' 23:59:59']];
+                }
+                return ['>=', date1];
+            default:
+                return null;
+        }
+    }
+
+    function updateURLWithFilters() {
+        const url = new URL(window.location);
+
+        // Clear existing filter params
+        url.searchParams.delete('doctype');
+        url.searchParams.delete('sort_modified');
+        url.searchParams.delete('created_op');
+        url.searchParams.delete('created_date1');
+        url.searchParams.delete('created_date2');
+        url.searchParams.delete('due_op');
+        url.searchParams.delete('due_date1');
+        url.searchParams.delete('due_date2');
+
+        // Add current filter params
+        const doctype = document.getElementById('filter-doctype').value;
+        if (doctype) url.searchParams.set('doctype', doctype);
+
+        const sortModified = document.getElementById('sort-modified').value;
+        if (sortModified) url.searchParams.set('sort_modified', sortModified);
+
+        const createdOp = document.getElementById('filter-created-op').value;
+        if (createdOp) {
+            url.searchParams.set('created_op', createdOp);
+            const createdDate1 = document.getElementById('filter-created-date1').value;
+            if (createdDate1) url.searchParams.set('created_date1', createdDate1);
+            if (createdOp === 'between') {
+                const createdDate2 = document.getElementById('filter-created-date2').value;
+                if (createdDate2) url.searchParams.set('created_date2', createdDate2);
+            }
+        }
+
+        const dueOp = document.getElementById('filter-due-op').value;
+        if (dueOp) {
+            url.searchParams.set('due_op', dueOp);
+            const dueDate1 = document.getElementById('filter-due-date1').value;
+            if (dueDate1) url.searchParams.set('due_date1', dueDate1);
+            if (dueOp === 'between') {
+                const dueDate2 = document.getElementById('filter-due-date2').value;
+                if (dueDate2) url.searchParams.set('due_date2', dueDate2);
+            }
+        }
+
+        window.history.replaceState({}, '', url);
+    }
+
+    function updateActiveFilterBadges() {
+        const container = document.getElementById('active-filters');
+        const clearBtn = document.getElementById('clear-filters');
+        let tags = [];
+
+        const doctype = document.getElementById('filter-doctype').value;
+        if (doctype) {
+            tags.push('<span class="filter-tag"><span class="tag-field">DocType:</span><span class="tag-value">' + doctype + '</span><span class="tag-remove" data-filter="doctype">&times;</span></span>');
+        }
+
+        const sortModified = document.getElementById('sort-modified').value;
+        if (sortModified) {
+            const sortLabel = sortModified === 'desc' ? 'Newest First' : 'Oldest First';
+            tags.push('<span class="filter-tag"><span class="tag-field">Sort:</span><span class="tag-value">' + sortLabel + '</span><span class="tag-remove" data-filter="sort">&times;</span></span>');
+        }
+
+        const createdOp = document.getElementById('filter-created-op').value;
+        const createdDate1 = document.getElementById('filter-created-date1').value;
+        if (createdOp && createdDate1) {
+            let valueLabel = getDateFilterValue(createdOp, createdDate1, document.getElementById('filter-created-date2').value);
+            tags.push('<span class="filter-tag"><span class="tag-field">Created:</span><span class="tag-value">' + valueLabel + '</span><span class="tag-remove" data-filter="created">&times;</span></span>');
+        }
+
+        const dueOp = document.getElementById('filter-due-op').value;
+        const dueDate1 = document.getElementById('filter-due-date1').value;
+        if (dueOp && dueDate1) {
+            let valueLabel = getDateFilterValue(dueOp, dueDate1, document.getElementById('filter-due-date2').value);
+            tags.push('<span class="filter-tag"><span class="tag-field">Due:</span><span class="tag-value">' + valueLabel + '</span><span class="tag-remove" data-filter="due">&times;</span></span>');
+        }
+
+        container.innerHTML = tags.join('');
+        clearBtn.style.display = tags.length > 0 ? 'inline-block' : 'none';
+
+        // Add click handlers for remove buttons
+        container.querySelectorAll('.tag-remove').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                removeFilter(this.dataset.filter);
+            });
+        });
+    }
+
+    function getDateFilterValue(op, date1, date2) {
+        const opLabels = {
+            '=': '= ',
+            '!=': '!= ',
+            '<': '< ',
+            '>': '> ',
+            'between': ''
+        };
+        if (op === 'between' && date2) {
+            return date1 + ' to ' + date2;
+        }
+        return opLabels[op] + date1;
+    }
+
+    function removeFilter(filterType) {
+        switch(filterType) {
+            case 'doctype':
+                document.getElementById('filter-doctype').value = '';
+                break;
+            case 'sort':
+                document.getElementById('sort-modified').value = '';
+                currentSort = '';
+                break;
+            case 'created':
+                document.getElementById('filter-created-op').value = '';
+                document.getElementById('filter-created-date1').value = '';
+                document.getElementById('filter-created-date2').value = '';
+                toggleDateField('created', '');
+                break;
+            case 'due':
+                document.getElementById('filter-due-op').value = '';
+                document.getElementById('filter-due-date1').value = '';
+                document.getElementById('filter-due-date2').value = '';
+                toggleDateField('due', '');
+                break;
+        }
+        applyFilters();
+    }
+
+    function clearAllFilters() {
+        document.getElementById('filter-doctype').value = '';
+        document.getElementById('sort-modified').value = '';
+        document.getElementById('filter-created-op').value = '';
+        document.getElementById('filter-created-date1').value = '';
+        document.getElementById('filter-created-date2').value = '';
+        document.getElementById('filter-due-op').value = '';
+        document.getElementById('filter-due-date1').value = '';
+        document.getElementById('filter-due-date2').value = '';
+        toggleDateField('created', '');
+        toggleDateField('due', '');
+        currentSort = '';
+        applyFilters();
+    }
+
+    function applyFilters() {
+        currentFilters = buildFiltersObject();
+        currentPage = 0;
+        updateURLWithFilters();
+        updateActiveFilterBadges();
+        loadTasks();
+    }
+
+    function setupFilterEventListeners() {
+        // Toggle filter panel
+        document.getElementById('toggle-filters').addEventListener('click', function() {
+            const panel = document.getElementById('filter-panel');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+            } else {
+                panel.style.display = 'none';
+            }
+        });
+
+        // Apply filters button
+        document.getElementById('apply-filters').addEventListener('click', applyFilters);
+
+        // Clear all filters button
+        document.getElementById('clear-filters').addEventListener('click', clearAllFilters);
+
+        // Filter row remove buttons
+        document.querySelectorAll('.filter-row-remove').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                removeFilter(this.dataset.filter);
+            });
+        });
+    }
+
+    // ========== End Filter Functions ==========
 
     function getActionButtonClass(action) {
         const lowerAction = action.toLowerCase();
@@ -591,139 +1263,117 @@ frappe.ready(function() {
             return;
         }
 
-        container.innerHTML = tasks.map(task => {
+        const isPendingView = currentStatus === 'pending_with_me' || currentStatus === 'overdue_with_me';
+        const isCompletedView = currentStatus === 'completed_by_me';
+        const isOthersView = currentStatus === 'in_progress_others';
+
+        // Build header based on view
+        let headerHtml = `
+            <div class="task-list-header">
+                <div>Document</div>
+                <div>Status</div>
+                <div>${isCompletedView ? 'Completed' : 'Due Date'}</div>
+                <div>${isCompletedView ? 'Action' : 'Owner'}</div>
+                <div>${isPendingView ? 'Actions' : ''}</div>
+            </div>
+        `;
+
+        let rowsHtml = tasks.map(task => {
             const isPending = task.status === 'Pending';
             const isCompleted = task.status === 'Completed';
             const isRoleBased = !!task.assigned_role;
-            const isAssignedToMe = task.assigned_to === currentUser;
-            const wasCompletedByMe = task.completed_by === currentUser;
+
+            // Date column content based on view
+            let dateContent = '';
+            if (isCompletedView) {
+                dateContent = task.completed_at ? frappe.datetime.str_to_user(task.completed_at) : '-';
+            } else if (!isCompleted && task.due_date) {
+                dateContent = `<span class="${task.is_overdue ? 'overdue-text' : ''}">${frappe.datetime.str_to_user(task.due_date)}</span>`;
+            } else {
+                dateContent = '-';
+            }
+
+            // Owner/Action column based on view
+            let ownerContent = '';
+            if (isCompletedView) {
+                ownerContent = `
+                    <span class="badge bg-${task.action_taken === 'Approve' ? 'success' : task.action_taken === 'Reject' ? 'danger' : 'secondary'}">
+                        ${task.action_taken || task.status}
+                    </span>
+                `;
+            } else if (isOthersView) {
+                ownerContent = `
+                    <div>${task.assigned_to_name || task.assigned_to || task.assigned_role || '-'}</div>
+                    <div class="task-owner-sub">${task.status}</div>
+                `;
+            } else {
+                ownerContent = `
+                    <div>${task.doc_owner_name || task.doc_owner || '-'}</div>
+                    <div class="task-owner-sub">${task.doc_created ? frappe.datetime.prettyDate(task.doc_created) : ''}</div>
+                `;
+            }
+
+            // Actions column
+            let actionsContent = '';
+            if (isPending && !isOthersView) {
+                if (isRoleBased && !task.assigned_to) {
+                    actionsContent = `
+                        <button class="btn btn-sm btn-primary" onclick="claimTask('${task.name}', event)">Claim</button>
+                    `;
+                } else {
+                    actionsContent = `
+                        ${(task.available_actions || ['Approve', 'Reject']).map(action => `
+                            <button class="btn btn-sm ${getActionButtonClass(action)}"
+                                    onclick="showInlineCommentBox('${task.name}', '${action}', event)">
+                                ${action}
+                            </button>
+                        `).join('')}
+                    `;
+                }
+            }
 
             return `
-            <div class="approval-task-card ${task.is_overdue ? 'overdue' : ''}" data-task="${task.name}">
-                <div class="task-header">
-                    <h3 class="task-title">${task.node_label || task.node_id}</h3>
-                    <span class="task-priority ${(task.priority || 'medium').toLowerCase()}">${task.priority || 'Medium'}</span>
-                </div>
-                <div class="task-meta">
-                    <span><strong>Document:</strong>
+                <div class="task-row ${task.is_overdue && !isCompleted ? 'overdue' : ''}" data-task="${task.name}">
+                    <div class="task-cell task-cell-doc">
+                        <div class="task-doc-title">${task.node_label || task.node_id}</div>
                         <a href="/app/${task.reference_doctype.toLowerCase().replace(/ /g, '-')}/${task.reference_name}"
-                           target="_blank"
-                           class="doc-link"
-                           onclick="event.stopPropagation()">
+                           class="task-doc-link" target="_blank" onclick="event.stopPropagation()">
                             ${task.reference_doctype}: ${task.reference_name}
                         </a>
-                    </span>
-                    ${task.due_date ? `<span><strong>Due:</strong> ${frappe.datetime.str_to_user(task.due_date)}</span>` : ''}
-                </div>
-
-                <div class="task-doc-details">
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <span class="detail-label">Created by:</span>
-                            <span class="detail-value">${task.doc_owner_name || task.doc_owner || '-'}</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Created:</span>
-                            <span class="detail-value">${task.doc_created ? frappe.datetime.str_to_user(task.doc_created) : '-'}</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Last modified:</span>
-                            <span class="detail-value">${task.doc_modified ? frappe.datetime.str_to_user(task.doc_modified) : '-'}</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Submitted to workflow:</span>
-                            <span class="detail-value">${task.workflow_submitted ? frappe.datetime.str_to_user(task.workflow_submitted) : '-'}</span>
-                        </div>
-                        ${task.last_approver ? `
-                        <div class="detail-item last-approver">
-                            <span class="detail-label">Previous action:</span>
-                            <span class="detail-value">
-                                <span class="badge bg-${task.last_approver.action_taken === 'Approve' ? 'success' : task.last_approver.action_taken === 'Reject' ? 'danger' : 'secondary'}">${task.last_approver.action_taken}</span>
-                                by ${task.last_approver.completed_by_name || task.last_approver.completed_by}
-                                <span class="text-muted">(${frappe.datetime.prettyDate(task.last_approver.completed_at)})</span>
-                            </span>
-                        </div>
-                        ` : ''}
+                        ${isRoleBased ? `<div class="task-doc-meta">Role: ${task.assigned_role}</div>` : ''}
+                    </div>
+                    <div class="task-cell task-cell-status">
+                        <span class="task-priority ${(task.priority || 'medium').toLowerCase()}">${task.priority || 'Medium'}</span>
+                        ${isOthersView ? `<span class="task-status">${task.status}</span>` : ''}
+                    </div>
+                    <div class="task-cell task-cell-date ${task.is_overdue && !isCompleted ? 'overdue-text' : ''}">
+                        ${dateContent}
+                    </div>
+                    <div class="task-cell task-cell-owner">
+                        ${ownerContent}
+                    </div>
+                    <div class="task-cell task-cell-actions" id="buttons-${task.name}">
+                        ${actionsContent}
                     </div>
                 </div>
-
-                <div class="access-reason">
-                    <strong>Your access:</strong>
-                    ${currentStatus === 'in_progress_others' ?
-                      `<span class="access-badge">You participated in this workflow</span>
-                       <span class="text-muted ms-2">Currently with: ${task.assigned_to_name || task.assigned_to || task.assigned_role || 'Unassigned'}</span>` :
-                      isCompleted ?
-                      (wasCompletedByMe ? `<span class="access-badge">Actioned by you</span>` :
-                       `<span class="access-badge">Actioned by ${task.completed_by_name || task.completed_by}</span>`) :
-                      isAssignedToMe ? `<span class="access-badge">Awaiting your action</span>` :
-                      isRoleBased ? `<span class="access-badge">Via role: ${task.assigned_role}</span>` :
-                      `<span class="access-badge">System Manager</span>`}
-                </div>
-
-                ${isRoleBased ? `
-                <div class="task-assignee-info">
-                    <strong>Assigned to role:</strong> ${task.assigned_role}
-                    ${task.assigned_to ? ` <span class="badge bg-info">Claimed by ${task.assigned_to}</span>` : ' <span class="badge bg-warning text-dark">Unclaimed</span>'}
-                    <button class="btn btn-link btn-sm p-0 ms-2" onclick="showRoleMembers('${task.name}', '${task.assigned_role}', event)">
-                        View members
-                    </button>
-                </div>
-                ` : ''}
-
-                ${isPending && currentStatus !== 'in_progress_others' ? `
-                    <!-- Action buttons for pending tasks assigned to me -->
-                    <div class="task-actions-inline" id="actions-${task.name}">
-                        <div class="action-buttons" id="buttons-${task.name}">
-                            ${isRoleBased && !task.assigned_to ? `
-                                <!-- Role-based unclaimed: Only show Claim button -->
-                                <button class="btn btn-sm btn-primary" onclick="claimTask('${task.name}', event)">
-                                    Claim Task
-                                </button>
-                                <span class="text-muted ms-2">Claim to approve or reject</span>
-                            ` : `
-                                <!-- Claimed or direct assignment: Show action buttons -->
-                                ${(task.available_actions || ['Approve', 'Reject']).map(action => `
-                                    <button class="btn btn-sm ${getActionButtonClass(action)}"
-                                            onclick="showInlineCommentBox('${task.name}', '${action}', event)">
-                                        ${action}
-                                    </button>
-                                `).join('')}
-                                <button class="btn btn-sm btn-outline-secondary" onclick="showReassignModal('${task.name}', event)">
-                                    Reassign
-                                </button>
-                            `}
-                        </div>
-                        <div class="comment-box" id="commentbox-${task.name}" style="display:none;">
-                            <div class="mb-2"><strong id="action-label-${task.name}"></strong></div>
-                            <textarea id="comments-${task.name}" placeholder="Add comments (optional)..."></textarea>
-                            <div class="comment-actions">
-                                <button class="btn btn-sm btn-secondary" onclick="hideInlineCommentBox('${task.name}', event)">Cancel</button>
-                                <button class="btn btn-sm btn-primary" onclick="submitInlineAction('${task.name}', event)">Confirm</button>
-                            </div>
+                <div class="task-row-expanded" id="commentbox-${task.name}" style="display:none;">
+                    <div class="task-comment-form">
+                        <textarea id="comments-${task.name}" placeholder="Add comments (optional)..."></textarea>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-secondary" onclick="hideInlineCommentBox('${task.name}', event)">Cancel</button>
+                            <button class="btn btn-sm btn-primary" onclick="submitInlineAction('${task.name}', event)">Confirm</button>
                         </div>
                     </div>
-                ` : currentStatus === 'in_progress_others' ? `
-                    <!-- Status info for tasks with others -->
-                    <div class="task-status-badge">
-                        <span class="badge bg-info">${task.status}</span>
-                        <span class="text-muted">Waiting for ${task.assigned_to_name || task.assigned_to || task.assigned_role || 'assignment'}</span>
-                    </div>
-                ` : `
-                    <!-- Status badge for completed/other tasks -->
-                    <div class="task-status-badge">
-                        <span class="badge bg-${task.status === 'Completed' ? 'success' : task.status === 'Rejected' ? 'danger' : 'secondary'}">${task.status}</span>
-                        ${task.action_taken ? `<span class="text-muted">Action: ${task.action_taken}</span>` : ''}
-                        ${task.completed_by ? `<span class="text-muted">by ${task.completed_by_name || task.completed_by}</span>` : ''}
-                    </div>
-                `}
-            </div>
+                </div>
             `;
         }).join('');
 
+        container.innerHTML = `<div class="task-list">${headerHtml}${rowsHtml}</div>`;
+
         // Add click handlers for task detail
-        container.querySelectorAll('.approval-task-card').forEach(card => {
-            card.addEventListener('click', function(e) {
-                if (!e.target.closest('button') && !e.target.closest('.comment-box') && !e.target.closest('textarea')) {
+        container.querySelectorAll('.task-row').forEach(row => {
+            row.addEventListener('click', function(e) {
+                if (!e.target.closest('button') && !e.target.closest('a') && !e.target.closest('textarea')) {
                     showTaskDetail(this.dataset.task);
                 }
             });
@@ -753,10 +1403,12 @@ frappe.ready(function() {
         }
 
         container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-state-icon">${emptyMessage.icon}</div>
-                <h3>${emptyMessage.title}</h3>
-                <p>${emptyMessage.subtitle}</p>
+            <div class="task-list">
+                <div class="empty-state">
+                    <div class="empty-state-icon">${emptyMessage.icon}</div>
+                    <h3>${emptyMessage.title}</h3>
+                    <p>${emptyMessage.subtitle}</p>
+                </div>
             </div>
         `;
         document.getElementById('approval-pagination').innerHTML = '';
@@ -806,14 +1458,12 @@ frappe.ready(function() {
         // Store pending action
         pendingAction = { taskName, action };
 
-        // Hide buttons, show comment box
+        // Hide buttons, show expanded comment row
         const buttonsDiv = document.getElementById('buttons-' + taskName);
         const commentBox = document.getElementById('commentbox-' + taskName);
-        const actionLabel = document.getElementById('action-label-' + taskName);
 
-        if (buttonsDiv) buttonsDiv.style.display = 'none';
+        if (buttonsDiv) buttonsDiv.innerHTML = `<span class="text-muted">${action}...</span>`;
         if (commentBox) commentBox.style.display = 'block';
-        if (actionLabel) actionLabel.textContent = `${action} this task:`;
     };
 
     window.hideInlineCommentBox = function(taskName, event) {
@@ -821,12 +1471,8 @@ frappe.ready(function() {
 
         pendingAction = {};
 
-        // Show buttons, hide comment box
-        const buttonsDiv = document.getElementById('buttons-' + taskName);
-        const commentBox = document.getElementById('commentbox-' + taskName);
-
-        if (buttonsDiv) buttonsDiv.style.display = 'flex';
-        if (commentBox) commentBox.style.display = 'none';
+        // Reload tasks to restore buttons
+        loadTasks();
     };
 
     window.submitInlineAction = function(taskName, event) {

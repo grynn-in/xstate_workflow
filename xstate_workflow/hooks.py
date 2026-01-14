@@ -32,13 +32,14 @@ app_include_js = [
 ]
 
 # Include in website/web pages (for workflow builder standalone page)
+# NOTE: CSS is included globally, but JS is loaded per-page with cache-busting
+# to avoid heavy bundle on all pages and ensure fresh versions
 web_include_css = [
     "/assets/xstate_workflow/css/workflow.css",
     "/assets/xstate_workflow/js/workflow_builder.css"  # Built from standalone app
 ]
-web_include_js = [
-    "/assets/xstate_workflow/js/workflow_builder.standalone.iife.js"  # Standalone React app
-]
+# JS loaded directly in HTML templates (xstate-builder.html, xstate-dashboard.html)
+# with cache-busting timestamps for better cache control
 
 # ============================================================================
 # WEBSITE

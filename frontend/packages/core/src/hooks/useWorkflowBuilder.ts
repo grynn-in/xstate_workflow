@@ -3,6 +3,7 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  MarkerType,
   type Connection,
   type Node,
   type Edge,
@@ -62,8 +63,18 @@ export function useWorkflowBuilder(options: UseWorkflowBuilderOptions = {}): Use
   const [nodes, setNodes, onNodesChange] = useNodesState(
     (initialConfig?.nodes || []) as unknown as Node[]
   );
+
+  // Ensure all edges have markerEnd for arrows
+  const initialEdges = (initialConfig?.edges || []).map((edge) => ({
+    ...edge,
+    markerEnd: edge.markerEnd || {
+      type: MarkerType.ArrowClosed,
+      width: 20,
+      height: 20,
+    },
+  }));
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    (initialConfig?.edges || []) as unknown as Edge[]
+    initialEdges as unknown as Edge[]
   );
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
@@ -85,6 +96,11 @@ export function useWorkflowBuilder(options: UseWorkflowBuilderOptions = {}): Use
         id: generateEdgeId(),
         type: 'transition',
         data: edgeData,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 20,
+          height: 20,
+        },
       } as Edge;
 
       setEdges((eds) => addEdge(newEdge, eds));
@@ -195,7 +211,16 @@ export function useWorkflowBuilder(options: UseWorkflowBuilderOptions = {}): Use
   const loadConfig = useCallback(
     (config: WorkflowBuilderConfig) => {
       setNodes(config.nodes as unknown as Node[]);
-      setEdges(config.edges as unknown as Edge[]);
+      // Ensure all edges have markerEnd for arrows
+      const edgesWithMarkers = (config.edges || []).map((edge) => ({
+        ...edge,
+        markerEnd: edge.markerEnd || {
+          type: MarkerType.ArrowClosed,
+          width: 20,
+          height: 20,
+        },
+      }));
+      setEdges(edgesWithMarkers as unknown as Edge[]);
       setSelectedNodeId(undefined);
       setSelectedEdgeId(undefined);
     },

@@ -31,6 +31,7 @@ def get_context(context):
     context.docname = ""
     context.mermaid_definition = ""
     context.tooltip_data = {}
+    context.approval_tasks = []
 
     # Check if user is logged in
     if frappe.session.user == "Guest":
@@ -83,6 +84,14 @@ def get_context(context):
                 context.tooltip_data = generate_tooltip_data(context.transition_history)
             except Exception as e:
                 frappe.log_error(f"Mermaid diagram generation error: {e}")
+
+        # Fetch approval tasks for this document
+        if context.doctype and context.docname:
+            try:
+                from xstate_workflow.api.approval import get_document_approval_tasks
+                context.approval_tasks = get_document_approval_tasks(context.doctype, context.docname) or []
+            except Exception as e:
+                frappe.log_error(f"Approval tasks fetch error: {e}")
 
     except frappe.PermissionError as e:
         context.error = str(e)
