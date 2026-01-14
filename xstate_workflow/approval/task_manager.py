@@ -301,7 +301,8 @@ def get_my_approval_tasks(
     status: str = "pending_with_me",
     limit: int = 20,
     offset: int = 0,
-    filters: dict = None
+    filters: dict = None,
+    order_by: str = None
 ) -> list[dict]:
     """
     Get approval tasks for a user with user-centric status filtering.
@@ -318,6 +319,7 @@ def get_my_approval_tasks(
         limit: Maximum number of tasks to return
         offset: Offset for pagination
         filters: Additional filters
+        order_by: Sort order (e.g., "modified desc")
 
     Returns:
         List of task dicts
@@ -357,7 +359,7 @@ def get_my_approval_tasks(
 
     elif status == "in_progress_others":
         # Workflows user participated in, currently with someone else
-        return _get_in_progress_others(user, user_roles, limit, offset)
+        return _get_in_progress_others(user, user_roles, limit, offset, filters, order_by)
 
     else:
         # Legacy support: treat as direct status filter
@@ -370,6 +372,9 @@ def get_my_approval_tasks(
     if filters:
         base_filters.update(filters)
 
+    # Determine sort order
+    sort_order = order_by if order_by else "priority desc, due_date asc, creation asc"
+
     # Query tasks
     if or_filters:
         tasks = frappe.get_all(
@@ -377,7 +382,7 @@ def get_my_approval_tasks(
             filters=base_filters,
             or_filters=or_filters,
             fields=_get_task_fields(),
-            order_by="priority desc, due_date asc, creation asc",
+            order_by=sort_order,
             limit_page_length=limit,
             limit_start=offset
         )
@@ -386,7 +391,7 @@ def get_my_approval_tasks(
             "Approval Task",
             filters=base_filters,
             fields=_get_task_fields(),
-            order_by="priority desc, due_date asc, creation asc",
+            order_by=sort_order,
             limit_page_length=limit,
             limit_start=offset
         )
@@ -500,7 +505,9 @@ def _get_in_progress_others(
     user: str,
     user_roles: list[str],
     limit: int,
-    offset: int
+    offset: int,
+    filters: dict = None,
+    order_by: str = None
 ) -> list[dict]:
     """
     Get tasks in workflows user participated in, currently with someone else.
@@ -510,6 +517,14 @@ def _get_in_progress_others(
     2. Previously approved (was assigned and completed a task)
 
     AND the workflow is still active with tasks assigned to others.
+
+    Args:
+        user: User ID
+        user_roles: List of user's roles
+        limit: Maximum number of tasks to return
+        offset: Offset for pagination
+        filters: Additional filters to apply
+        order_by: Sort order (e.g., "modified desc")
     """
     # Get workflow instances user participated in (as assignee or completer)
     participated = frappe.db.sql("""
@@ -530,15 +545,25 @@ def _get_in_progress_others(
     # - status is active (Pending, In Progress, Escalated)
     # - NOT assigned to current user (directly or via role)
 
+    # Build base filters
+    task_filters = {
+        "workflow_instance": ["in", workflow_ids],
+        "status": ["in", ["Pending", "In Progress", "Escalated"]]
+    }
+
+    # Apply additional filters
+    if filters:
+        task_filters.update(filters)
+
+    # Determine sort order
+    sort_order = order_by if order_by else "creation desc"
+
     # First get all active tasks in participated workflows
     all_tasks = frappe.get_all(
         "Approval Task",
-        filters={
-            "workflow_instance": ["in", workflow_ids],
-            "status": ["in", ["Pending", "In Progress", "Escalated"]]
-        },
+        filters=task_filters,
         fields=_get_task_fields(),
-        order_by="creation desc"
+        order_by=sort_order
     )
 
     # Filter out tasks that ARE assigned to the current user

@@ -321,6 +321,62 @@
   .mermaid .node:hover polygon {
     filter: brightness(1.1);
   }
+
+  /* Approval History styles */
+  .approval-item {
+    padding: 12px;
+    background: #f9fafb;
+    border-radius: 8px;
+    margin-bottom: 8px;
+  }
+
+  .approval-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .node-label {
+    font-weight: 600;
+    color: #374151;
+  }
+
+  .action-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .action-badge.approve { background: #d1fae5; color: #065f46; }
+  .action-badge.reject { background: #fee2e2; color: #991b1b; }
+  .action-badge.escalate { background: #fef3c7; color: #92400e; }
+  .action-badge.reassign { background: #dbeafe; color: #1e40af; }
+
+  .status-badge-small {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .status-badge-small.pending { background: #fef3c7; color: #92400e; }
+  .status-badge-small.in-progress { background: #dbeafe; color: #1e40af; }
+  .status-badge-small.cancelled { background: #f3f4f6; color: #6b7280; }
+
+  .approval-meta {
+    font-size: 12px;
+    color: #6b7280;
+  }
+
+  .approval-comments {
+    margin-top: 8px;
+    font-style: italic;
+    color: #4b5563;
+    padding-left: 12px;
+    border-left: 2px solid #e5e7eb;
+  }
 </style>
 <!-- Mermaid.js via CDN for state diagram rendering -->
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
@@ -439,6 +495,38 @@
       {% endfor %}
     {% else %}
       <div class="text-muted">No transition history</div>
+    {% endif %}
+  </div>
+
+  <!-- Approval History -->
+  <div class="history-section" style="margin-top: 20px;">
+    <h2>Approval History</h2>
+    {% if approval_tasks %}
+      {% for task in approval_tasks %}
+      <div class="approval-item">
+        <div class="approval-header">
+          <span class="node-label">{{ task.node_label or 'Approval' }}</span>
+          {% if task.status == 'Completed' %}
+            <span class="action-badge {{ task.action_taken | lower }}">{{ task.action_taken | title }}</span>
+          {% else %}
+            <span class="status-badge-small {{ task.status | lower | replace(' ', '-') }}">{{ task.status }}</span>
+          {% endif %}
+        </div>
+        <div class="approval-meta">
+          {% if task.status == 'Completed' %}
+            <strong>{{ task.completed_by_name or task.completed_by }}</strong> • {{ task.completed_at }}
+          {% else %}
+            Assigned to: <strong>{{ task.assigned_to_name or task.assigned_to or task.assigned_role }}</strong>
+            {% if task.due_date %} • Due: {{ task.due_date }}{% endif %}
+          {% endif %}
+        </div>
+        {% if task.comments %}
+        <div class="approval-comments">"{{ task.comments }}"</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-muted">No approval history</div>
     {% endif %}
   </div>
 

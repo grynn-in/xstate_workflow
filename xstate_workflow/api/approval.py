@@ -17,7 +17,8 @@ def get_my_approval_tasks(
     status: str = "pending_with_me",
     limit: int = 20,
     offset: int = 0,
-    filters: str = None
+    filters: str = None,
+    order_by: str = None
 ) -> dict:
     """
     Get approval tasks for the current user.
@@ -32,6 +33,7 @@ def get_my_approval_tasks(
         limit: Page size
         offset: Page offset
         filters: Additional JSON filters
+        order_by: Sort order (e.g., "modified desc", "creation asc")
 
     Returns:
         Dict with tasks and total count
@@ -46,7 +48,8 @@ def get_my_approval_tasks(
         status=status,
         limit=int(limit),
         offset=int(offset),
-        filters=additional_filters
+        filters=additional_filters,
+        order_by=order_by
     )
 
     # Get total count based on user-centric status
@@ -431,6 +434,25 @@ def _count_in_progress_others(user: str, user_roles: list) -> int:
 
 
 @frappe.whitelist()
+def get_available_doctypes() -> list:
+    """
+    Get list of distinct reference_doctypes from approval tasks.
+
+    Returns:
+        List of doctype names sorted alphabetically
+    """
+    doctypes = frappe.db.sql("""
+        SELECT DISTINCT reference_doctype
+        FROM `tabApproval Task`
+        WHERE reference_doctype IS NOT NULL
+        AND reference_doctype != ''
+        ORDER BY reference_doctype
+    """, as_list=True)
+
+    return [d[0] for d in doctypes]
+
+
+@frappe.whitelist()
 def claim_task(task_name: str) -> dict:
     """
     Claim a role-based task for the current user.
@@ -589,12 +611,13 @@ def get_document_approval_tasks(doctype: str, docname: str) -> list:
         fields=[
             "name", "node_id", "node_label", "status",
             "assigned_to", "assigned_role", "priority",
-            "available_actions", "action_taken", "due_date"
+            "available_actions", "action_taken", "due_date",
+            "completed_by", "completed_at", "comments", "creation"
         ],
         order_by="creation desc"
     )
 
-    # Add can_action flag to each task
+    # Add can_action flag and resolve user names
     for task in tasks:
         can_action = False
         if task.status == "Pending":
@@ -607,6 +630,12 @@ def get_document_approval_tasks(doctype: str, docname: str) -> list:
                 can_action = True
 
         task["can_action"] = can_action
+
+        # Resolve user full names
+        if task.assigned_to:
+            task["assigned_to_name"] = frappe.db.get_value("User", task.assigned_to, "full_name") or task.assigned_to
+        if task.completed_by:
+            task["completed_by_name"] = frappe.db.get_value("User", task.completed_by, "full_name") or task.completed_by
 
         # Parse available actions
         if task.available_actions:

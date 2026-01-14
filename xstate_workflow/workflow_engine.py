@@ -1134,14 +1134,11 @@ def get_or_create_instance(doctype: str, docname: str) -> str:
     Returns:
         Instance name
     """
-    existing = frappe.db.get_value(
-        "Machine Instance",
-        {"reference_doctype": doctype, "reference_name": docname},
-        "name"
-    )
+    # Use get_instance_for_doc which handles duplicates properly
+    existing_instance = get_instance_for_doc(doctype, docname)
 
-    if existing:
-        return existing
+    if existing_instance:
+        return existing_instance.name
 
     # Find active state machine for this doctype
     state_machine = frappe.db.get_value(
@@ -1299,6 +1296,9 @@ def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_
 def get_instance_for_doc(doctype: str, docname: str):
     """
     Get Machine Instance for a document if it exists.
+    If multiple instances exist, returns the most relevant one:
+    - Prefers active (non-final) instances over final ones
+    - Among same status, prefers the most recently created
 
     Args:
         doctype: Reference DocType
@@ -1307,16 +1307,28 @@ def get_instance_for_doc(doctype: str, docname: str):
     Returns:
         Machine Instance doc or None
     """
-    instance_name = frappe.db.get_value(
+    # Get all instances for this document, ordered by creation desc
+    instances = frappe.get_all(
         "Machine Instance",
-        {"reference_doctype": doctype, "reference_name": docname},
-        "name"
+        filters={"reference_doctype": doctype, "reference_name": docname},
+        fields=["name", "status", "creation"],
+        order_by="creation desc"
     )
 
-    if instance_name:
-        return frappe.get_doc("Machine Instance", instance_name)
+    if not instances:
+        return None
 
-    return None
+    # If only one instance, return it
+    if len(instances) == 1:
+        return frappe.get_doc("Machine Instance", instances[0].name)
+
+    # Multiple instances - prefer non-final (active workflow) over final
+    active_instances = [i for i in instances if i.status not in ("final", "archived")]
+    if active_instances:
+        return frappe.get_doc("Machine Instance", active_instances[0].name)
+
+    # All are final/archived - return the most recent
+    return frappe.get_doc("Machine Instance", instances[0].name)
 
 
 def execute_transition(instance_name: str, event: str, input_data: dict = None) -> dict:

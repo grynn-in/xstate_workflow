@@ -115,6 +115,7 @@ export interface WorkflowEdgeData {
   actions?: string[];
   description?: string;
   trigger?: TriggerConfig;
+  pathOffset?: number; // Manual offset for edge path positioning
   // Index signature for React Flow compatibility
   [key: string]: unknown;
 }

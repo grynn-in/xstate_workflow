@@ -428,6 +428,27 @@ function PropertiesPanelComponent({
             Configure Triggers
           </button>
         </div>
+
+        <div className="xsw-panel-section">
+          <div className="xsw-panel-section-title">Path Offset</div>
+          <p style={{ color: '#6b7280', fontSize: '12px', marginBottom: '8px' }}>
+            Adjust to move overlapping edges apart
+          </p>
+          <input
+            type="range"
+            min="-100"
+            max="100"
+            step="5"
+            value={selectedEdge.data.pathOffset || 0}
+            onChange={(e) => onEdgeChange?.(selectedEdge.id, { pathOffset: parseInt(e.target.value, 10) })}
+            style={{ width: '100%' }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#9ca3af' }}>
+            <span>-100</span>
+            <span>{selectedEdge.data.pathOffset || 0}px</span>
+            <span>100</span>
+          </div>
+        </div>
       </div>
     );
   }

@@ -124,6 +124,8 @@
 {% endblock %}
 
 {% block script %}
+<!-- Load bundle directly with cache-busting -->
+<script src="/assets/xstate_workflow/js/workflow_builder.standalone.iife.js?v={{ frappe.utils.now_datetime().timestamp() | int }}"></script>
 <script>
   // Error handler
   window.onerror = function(msg, url, lineNo, columnNo, error) {

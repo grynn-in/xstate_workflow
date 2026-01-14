@@ -2,7 +2,7 @@ import { memo } from 'react';
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getBezierPath,
+  getSmoothStepPath,
   type Position,
 } from '@xyflow/react';
 import { clsx } from 'clsx';
@@ -47,13 +47,18 @@ function TransitionEdgeComponent({
   selected,
   markerEnd,
 }: TransitionEdgeProps) {
-  const [edgePath, labelX, labelY] = getBezierPath({
+  // Use custom pathOffset if provided, otherwise default to 0
+  const offset = data?.pathOffset ?? 0;
+
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 8,
+    offset,
   });
 
   const transitionType = data?.transitionType || 'event';
@@ -118,6 +123,7 @@ function TransitionEdgeComponent({
   };
 
   const labelText = getLabelText();
+  const strokeColor = getStrokeColor();
 
   return (
     <>
@@ -137,7 +143,7 @@ function TransitionEdgeComponent({
         )}
         style={{
           strokeDasharray: getStrokeDasharray(),
-          stroke: getStrokeColor(),
+          stroke: strokeColor,
           strokeWidth: getStrokeWidth(),
           opacity: getOpacity(),
         }}

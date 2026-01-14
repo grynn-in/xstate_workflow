@@ -440,3 +440,97 @@ def bulk_get_workflow_states(doc_refs: str | list) -> dict:
             result[key] = {"has_workflow": False}
 
     return result
+
+
+@frappe.whitelist()
+def cleanup_duplicate_instances(doctype: str = None, docname: str = None, dry_run: bool = True):
+    """
+    Clean up duplicate Machine Instance records.
+
+    For each document with multiple instances, keeps only the most relevant one:
+    - Prefers active (non-final) instances over final ones
+    - Among same status, keeps the most recently created
+
+    Args:
+        doctype: Optional - limit cleanup to specific DocType
+        docname: Optional - limit cleanup to specific document
+        dry_run: If True, only reports what would be deleted (default: True)
+
+    Returns:
+        Dict with cleanup results
+    """
+    if not frappe.has_permission("Machine Instance", "delete"):
+        frappe.throw(_("No permission to delete Machine Instances"), frappe.PermissionError)
+
+    filters = {}
+    if doctype:
+        filters["reference_doctype"] = doctype
+    if docname:
+        filters["reference_name"] = docname
+
+    # Find all instances grouped by document
+    all_instances = frappe.get_all(
+        "Machine Instance",
+        filters=filters,
+        fields=["name", "reference_doctype", "reference_name", "status", "current_state", "creation"],
+        order_by="reference_doctype, reference_name, creation desc"
+    )
+
+    # Group by document
+    docs = {}
+    for inst in all_instances:
+        key = f"{inst.reference_doctype}:{inst.reference_name}"
+        if key not in docs:
+            docs[key] = []
+        docs[key].append(inst)
+
+    # Find duplicates and determine which to delete
+    to_delete = []
+    kept = []
+
+    for key, instances in docs.items():
+        if len(instances) <= 1:
+            continue
+
+        # Sort: active instances first, then by creation desc
+        def sort_key(i):
+            is_active = 0 if i.status in ("final", "archived") else 1
+            return (is_active, i.creation)
+
+        sorted_instances = sorted(instances, key=sort_key, reverse=True)
+
+        # Keep first (best), delete rest
+        kept.append({
+            "document": key,
+            "instance": sorted_instances[0].name,
+            "state": sorted_instances[0].current_state,
+            "status": sorted_instances[0].status
+        })
+
+        for inst in sorted_instances[1:]:
+            to_delete.append({
+                "name": inst.name,
+                "document": key,
+                "state": inst.current_state,
+                "status": inst.status
+            })
+
+    # Perform deletion if not dry run
+    deleted = []
+    if not dry_run and to_delete:
+        for item in to_delete:
+            try:
+                frappe.delete_doc("Machine Instance", item["name"], force=True)
+                deleted.append(item)
+            except Exception as e:
+                frappe.log_error(f"Failed to delete Machine Instance {item['name']}: {e}")
+
+        frappe.db.commit()
+
+    return {
+        "dry_run": dry_run,
+        "duplicates_found": len(to_delete),
+        "to_delete": to_delete if dry_run else None,
+        "deleted": deleted if not dry_run else None,
+        "kept": kept
+    }

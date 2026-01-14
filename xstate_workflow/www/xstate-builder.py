@@ -29,12 +29,14 @@ def get_context(context):
     context.no_breadcrumbs = 1
     context.full_width = 1
 
-    # Include React standalone bundle and CSS
+    # Include CSS (script is loaded directly in HTML template for better cache control)
+    import time
+    cache_bust = int(time.time())
+
     context.include_css = [
-        "/assets/xstate_workflow/js/workflow_builder.css"
+        f"/assets/xstate_workflow/js/workflow_builder.css?v={cache_bust}"
     ]
-    context.include_script = [
-        "/assets/xstate_workflow/js/workflow_builder.standalone.iife.js"
-    ]
+    # Script is now loaded directly in the HTML template with cache-busting
+    context.include_script = []
 
     return context
