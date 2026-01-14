@@ -90,10 +90,15 @@ def _process_states(states: dict, lines: list, parent_path: str = "") -> None:
             _process_states(nested_states, lines, state_name)
             lines.append("    }")
 
-        # Process transitions
+        # Process event-based transitions
         on_transitions = state_config.get("on", {})
         for event_name, transition in on_transitions.items():
             _add_transition(lines, escaped_name, event_name, transition)
+
+        # Process always (eventless/automatic) transitions
+        always_transitions = state_config.get("always", [])
+        if always_transitions:
+            _add_transition(lines, escaped_name, "[auto]", always_transitions)
 
         # Add final state marker
         if state_config.get("type") == "final":
