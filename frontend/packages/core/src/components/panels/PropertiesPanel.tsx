@@ -265,17 +265,31 @@ function PropertiesPanelComponent({
   }
 
   if (selectedEdge) {
-    const guardDisplay = selectedEdge.data.guard
-      ? selectedEdge.data.guard.type === 'python'
-        ? selectedEdge.data.guard.name
-        : selectedEdge.data.guard.type === 'simple'
-          ? `${selectedEdge.data.guard.field} ${selectedEdge.data.guard.operator}`
-          : 'Compound guard'
-      : null;
+    // Guard against missing data
+    if (!selectedEdge.data) {
+      return <div className="xsw-panel"><div className="xsw-panel-header">Transition Properties</div></div>;
+    }
 
-    const hasTrigger = selectedEdge.data.trigger?.button?.enabled ||
-                       selectedEdge.data.trigger?.auto?.enabled ||
-                       selectedEdge.data.trigger?.delayed?.enabled;
+    // Handle guard display - guard could be string (legacy) or object
+    const guard = selectedEdge.data?.guard;
+    let guardDisplay: string | null = null;
+    if (guard) {
+      if (typeof guard === 'string') {
+        guardDisplay = guard;
+      } else if (typeof guard === 'object' && guard.type) {
+        guardDisplay = guard.type === 'python'
+          ? guard.name
+          : guard.type === 'simple'
+            ? `${guard.field} ${guard.operator}`
+            : 'Compound guard';
+      } else if (typeof guard === 'object' && guard.name) {
+        guardDisplay = guard.name;
+      }
+    }
+
+    const hasTrigger = selectedEdge.data?.trigger?.button?.enabled ||
+                       selectedEdge.data?.trigger?.auto?.enabled ||
+                       selectedEdge.data?.trigger?.delayed?.enabled;
 
     return (
       <div className="xsw-panel">
