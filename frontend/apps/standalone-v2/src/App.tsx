@@ -36,11 +36,13 @@ import '@xstate-workflow/core-v2/styles';
 import {
   saveMachine,
   loadMachine,
+  listMachines,
   showSuccess,
   showError,
   getDocTypes,
   getDocTypeFields,
   getRoles,
+  type MachineListItem,
 } from '@xstate-workflow/frappe-adapter';
 
 interface AppProps {
@@ -61,6 +63,9 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
   const [doctypesList, setDoctypesList] = useState<string[]>([]);
   const [doctypeFields, setDoctypeFields] = useState<FrappeField[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+
+  // Workflow list for selector
+  const [workflowsList, setWorkflowsList] = useState<MachineListItem[]>([]);
 
   const {
     nodes,
@@ -155,10 +160,11 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     [onHelperLinesDragEnd]
   );
 
-  // Fetch doctypes list and roles on mount
+  // Fetch doctypes list, roles, and workflows on mount
   useEffect(() => {
     getDocTypes().then(setDoctypesList).catch(console.error);
     getRoles().then(setAvailableRoles).catch(console.error);
+    listMachines(undefined, true).then(setWorkflowsList).catch(console.error);
   }, []);
 
   // Fetch doctype fields when attachedDoctype changes
@@ -326,6 +332,9 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
       setMachineId(result.name);
       setHasUnsavedChanges(false);
       showSuccess('Workflow saved successfully');
+
+      // Refresh workflow list to include newly saved workflow
+      listMachines(undefined, true).then(setWorkflowsList).catch(console.error);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       showError(`Failed to save: ${message}`);
@@ -333,6 +342,52 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
       setIsSaving(false);
     }
   }, [getConfig, machineId, machineTitle, attachedDoctype]);
+
+  // Handle loading a different workflow
+  const handleLoadWorkflow = useCallback(async (selectedMachineId: string) => {
+    if (!selectedMachineId) {
+      // "New Workflow" selected - reset to blank
+      setMachineId(undefined);
+      setMachineTitle('New Workflow');
+      setAttachedDoctype(undefined);
+      loadConfig({ nodes: [], edges: [] });
+      setHasUnsavedChanges(false);
+      return;
+    }
+
+    if (hasUnsavedChanges) {
+      const confirmed = window.confirm('You have unsaved changes. Discard and load another workflow?');
+      if (!confirmed) return;
+    }
+
+    try {
+      const data = await loadMachine(selectedMachineId);
+      setMachineId(selectedMachineId);
+      setMachineTitle(data.title);
+      setAttachedDoctype(data.attached_doctype);
+
+      if (data.json_config) {
+        const xstate = JSON.parse(data.json_config);
+        let existingLayout: WorkflowBuilderConfig | undefined;
+        if (data.workflow_builder_config) {
+          try {
+            existingLayout = JSON.parse(data.workflow_builder_config) as WorkflowBuilderConfig;
+          } catch {
+            // Ignore parsing errors
+          }
+        }
+        const config = xstateToWorkflow(xstate, existingLayout);
+        loadConfig(config);
+      } else {
+        loadConfig({ nodes: [], edges: [] });
+      }
+
+      setHasUnsavedChanges(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      showError(`Failed to load workflow: ${message}`);
+    }
+  }, [hasUnsavedChanges, loadConfig]);
 
   // Handle delete selected
   const handleDelete = useCallback(() => {
@@ -408,11 +463,26 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
         <div className="xsw-toolbar">
           <div className="xsw-toolbar-left">
             <span style={{ fontSize: '20px' }}>&#x2B21;</span>
+            <select
+              className="xsw-select"
+              value={machineId || ''}
+              onChange={(e) => handleLoadWorkflow(e.target.value)}
+              style={{ width: '200px' }}
+              title="Select an existing workflow to edit, or choose 'New Workflow' to start fresh"
+            >
+              <option value="">+ New Workflow</option>
+              {workflowsList.map((wf) => (
+                <option key={wf.machine_id} value={wf.machine_id}>
+                  {wf.title || wf.machine_id}
+                </option>
+              ))}
+            </select>
             <input
               type="text"
               className="xsw-input"
-              style={{ width: '200px', fontWeight: 600 }}
+              style={{ width: '180px', fontWeight: 600 }}
               value={machineTitle}
+              title="Workflow name - displayed in the dashboard and used for identification"
               onChange={(e) => {
                 setMachineTitle(e.target.value);
                 setHasUnsavedChanges(true);
@@ -425,7 +495,8 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
                 setAttachedDoctype(e.target.value || undefined);
                 setHasUnsavedChanges(true);
               }}
-              style={{ width: '180px' }}
+              style={{ width: '160px' }}
+              title="DocType this workflow is attached to - enables field-based guards and actions"
             >
               <option value="">Select DocType...</option>
               {doctypesList.map((dt) => (
