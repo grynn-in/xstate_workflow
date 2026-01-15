@@ -42,12 +42,18 @@ export interface PythonGuardConfig {
 
 export type GuardConfig = SimpleGuardConfig | CompoundGuardConfig | PythonGuardConfig;
 
-// Action Configuration
+// Action Configuration (for defining available actions)
 export interface ActionConfig {
   name: string;
   type: 'entry' | 'exit' | 'transition';
   category: 'builtin' | 'python' | 'webhook';
   description?: string;
+  params?: Record<string, unknown>;
+}
+
+// Configured Action (for storing actions with their parameter values)
+export interface ConfiguredAction {
+  name: string;
   params?: Record<string, unknown>;
 }
 
@@ -86,8 +92,9 @@ export interface WorkflowNodeData {
   xstateType: XStateNodeType;
   description?: string;
   isInitial?: boolean;
-  entryActions?: string[];
-  exitActions?: string[];
+  // Actions can be strings (legacy) or ConfiguredAction objects (with params)
+  entryActions?: Array<string | ConfiguredAction>;
+  exitActions?: Array<string | ConfiguredAction>;
   // For compound/parallel states
   children?: string[];
   initialChild?: string;

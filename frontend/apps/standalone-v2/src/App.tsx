@@ -18,6 +18,7 @@ import {
   edgeTypes,
   PropertiesPanel,
   NodePalette,
+  ResizablePanel,
   HelperLines,
   useWorkflowBuilderWithHistory,
   useCopyPaste,
@@ -569,55 +570,70 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
         </div>
       </div>
 
-      {/* Node Palette */}
-      <div className="xsw-layout-palette">
-        <NodePalette onAddNode={handleAddNode} />
-      </div>
-
-      {/* Canvas */}
-      <div className="xsw-layout-canvas" ref={reactFlowWrapper}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={allNodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onNodeClick={onNodeClick}
-          onEdgeClick={onEdgeClick}
-          onPaneClick={onPaneClick}
-          onNodeDrag={handleNodeDrag}
-          onNodeDragStop={handleNodeDragStop}
-          onInit={setReactFlowInstance}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
-          fitView
-          className="xsw-canvas"
-          defaultEdgeOptions={{
-            type: 'transition',
-          }}
+      {/* Main Content Area */}
+      <div className="xsw-layout-main">
+        {/* Node Palette - Left Panel */}
+        <ResizablePanel
+          position="left"
+          defaultWidth={200}
+          minWidth={150}
+          maxWidth={350}
+          collapsedWidth={24}
         >
-          <Controls />
-          <MiniMap className="xsw-minimap" />
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-          <HelperLines
-            horizontalLines={horizontalLines}
-            verticalLines={verticalLines}
-          />
-        </ReactFlow>
-      </div>
+          <NodePalette onAddNode={handleAddNode} />
+        </ResizablePanel>
 
-      {/* Properties Panel */}
-      <div className="xsw-layout-panel">
-        <PropertiesPanel
-          selectedNode={selectedNode}
-          selectedEdge={selectedEdge}
-          onNodeChange={updateNode}
-          onEdgeChange={updateEdge}
-          doctypeFields={doctypeFields}
-          availableRoles={availableRoles}
-        />
+        {/* Canvas */}
+        <div className="xsw-layout-canvas" ref={reactFlowWrapper}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={allNodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
+            onPaneClick={onPaneClick}
+            onNodeDrag={handleNodeDrag}
+            onNodeDragStop={handleNodeDragStop}
+            onInit={setReactFlowInstance}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            fitView
+            className="xsw-canvas"
+            defaultEdgeOptions={{
+              type: 'transition',
+            }}
+          >
+            <Controls />
+            <MiniMap className="xsw-minimap" />
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            <HelperLines
+              horizontalLines={horizontalLines}
+              verticalLines={verticalLines}
+            />
+          </ReactFlow>
+        </div>
+
+        {/* Properties Panel - Right Panel */}
+        <ResizablePanel
+          position="right"
+          defaultWidth={320}
+          minWidth={280}
+          maxWidth={500}
+          collapsedWidth={24}
+        >
+          <PropertiesPanel
+            selectedNode={selectedNode}
+            selectedEdge={selectedEdge}
+            onNodeChange={updateNode}
+            onEdgeChange={updateEdge}
+            doctypeFields={doctypeFields}
+            availableRoles={availableRoles}
+          />
+        </ResizablePanel>
       </div>
     </div>
   );

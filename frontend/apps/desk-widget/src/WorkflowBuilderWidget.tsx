@@ -16,6 +16,7 @@ import {
   edgeTypes,
   PropertiesPanel,
   NodePalette,
+  ResizablePanel,
   useWorkflowBuilder,
   workflowToXState,
   xstateToWorkflow,
@@ -187,12 +188,18 @@ export function WorkflowBuilderWidget({
   return (
     <div className="xsw-widget" style={{ height: '100%', display: 'flex' }}>
       {/* Node Palette */}
-      <div style={{ width: '180px', borderRight: '1px solid #e5e7eb', background: '#f9fafb' }}>
+      <ResizablePanel
+        position="left"
+        defaultWidth={180}
+        minWidth={140}
+        maxWidth={300}
+        collapsedWidth={24}
+      >
         <NodePalette onAddNode={handleAddNode} />
-      </div>
+      </ResizablePanel>
 
       {/* Canvas */}
-      <div style={{ flex: 1, position: 'relative' }} ref={reactFlowWrapper}>
+      <div style={{ flex: 1, position: 'relative', minWidth: 0 }} ref={reactFlowWrapper}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -247,7 +254,13 @@ export function WorkflowBuilderWidget({
       </div>
 
       {/* Properties Panel */}
-      <div style={{ width: '280px', borderLeft: '1px solid #e5e7eb', overflow: 'auto' }}>
+      <ResizablePanel
+        position="right"
+        defaultWidth={280}
+        minWidth={240}
+        maxWidth={400}
+        collapsedWidth={24}
+      >
         <PropertiesPanel
           selectedNode={selectedNode}
           selectedEdge={selectedEdge}
@@ -256,7 +269,7 @@ export function WorkflowBuilderWidget({
           doctypeFields={doctypeFields}
           availableRoles={availableRoles}
         />
-      </div>
+      </ResizablePanel>
     </div>
   );
 }

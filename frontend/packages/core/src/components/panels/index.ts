@@ -5,3 +5,5 @@ export { ActionBuilderPanel } from './ActionBuilderPanel';
 export { TriggerConfigPanel } from './TriggerConfigPanel';
 export { RuntimeInfoPanel } from './RuntimeInfoPanel';
 export type { RuntimeInfoPanelProps } from './RuntimeInfoPanel';
+export { ResizablePanel } from './ResizablePanel';
+export type { ResizablePanelProps, PanelPosition } from './ResizablePanel';
