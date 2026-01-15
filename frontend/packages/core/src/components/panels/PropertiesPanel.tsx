@@ -1,8 +1,23 @@
 import { memo, useState, useCallback, useEffect } from 'react';
-import type { WorkflowNode, WorkflowEdge, FrappeField, GuardConfig } from '../../types';
+import type {
+  WorkflowNode,
+  WorkflowEdge,
+  FrappeField,
+  GuardConfig,
+  ApprovalNodeData,
+  ParallelApprovalNodeData,
+  ThresholdGateNodeData,
+  AutoActionNodeData,
+  ClassificationBranchNodeData,
+} from '../../types';
 import { GuardBuilderPanel } from './GuardBuilderPanel';
 import { ActionBuilderPanel } from './ActionBuilderPanel';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
+import { ApprovalNodePanel } from './domain/ApprovalNodePanel';
+import { ParallelApprovalPanel } from './domain/ParallelApprovalPanel';
+import { ThresholdGatePanel } from './domain/ThresholdGatePanel';
+import { AutoActionPanel } from './domain/AutoActionPanel';
+import { ClassificationBranchPanel } from './domain/ClassificationBranchPanel';
 
 export interface PropertiesPanelProps {
   selectedNode?: WorkflowNode;
@@ -150,6 +165,91 @@ function PropertiesPanelComponent({
   }
 
   if (selectedNode) {
+    // Check if this is a domain node
+    const domainType = (selectedNode.data as { domainType?: string }).domainType;
+
+    // Handler for domain node data changes
+    const handleDomainDataChange = (data: Partial<WorkflowNode['data']>) => {
+      onNodeChange?.(selectedNode.id, data);
+    };
+
+    // Render domain-specific panels
+    if (domainType) {
+      return (
+        <div className="xsw-panel" style={{ overflow: 'auto' }}>
+          {/* Common label section for all domain nodes */}
+          <div className="xsw-panel-section">
+            <div className="xsw-panel-section-title">Label</div>
+            <input
+              type="text"
+              className="xsw-input"
+              value={selectedNode.data.label}
+              onChange={(e) => onNodeChange?.(selectedNode.id, { label: e.target.value })}
+            />
+          </div>
+
+          {/* Domain-specific panel */}
+          {domainType === 'approval' && (
+            <ApprovalNodePanel
+              data={selectedNode.data as ApprovalNodeData}
+              doctypeFields={doctypeFields}
+              availableRoles={availableRoles}
+              onDataChange={handleDomainDataChange}
+            />
+          )}
+
+          {domainType === 'parallel_approval' && (
+            <ParallelApprovalPanel
+              data={selectedNode.data as ParallelApprovalNodeData}
+              doctypeFields={doctypeFields}
+              availableRoles={availableRoles}
+              onDataChange={handleDomainDataChange}
+            />
+          )}
+
+          {domainType === 'threshold_gate' && (
+            <ThresholdGatePanel
+              data={selectedNode.data as ThresholdGateNodeData}
+              doctypeFields={doctypeFields}
+              onDataChange={handleDomainDataChange}
+            />
+          )}
+
+          {domainType === 'auto_action' && (
+            <AutoActionPanel
+              data={selectedNode.data as AutoActionNodeData}
+              doctypeFields={doctypeFields}
+              onDataChange={handleDomainDataChange}
+            />
+          )}
+
+          {domainType === 'classification_branch' && (
+            <ClassificationBranchPanel
+              data={selectedNode.data as ClassificationBranchNodeData}
+              doctypeFields={doctypeFields}
+              onDataChange={handleDomainDataChange}
+            />
+          )}
+
+          {/* Start and End nodes just need label */}
+          {(domainType === 'start' || domainType === 'end') && (
+            <div className="xsw-panel-section">
+              <div className="xsw-panel-section-title">Description</div>
+              <textarea
+                className="xsw-input"
+                rows={2}
+                placeholder="Optional description..."
+                value={selectedNode.data.description || ''}
+                onChange={(e) => onNodeChange?.(selectedNode.id, { description: e.target.value })}
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Default XState node properties panel
     return (
       <div className="xsw-panel">
         <div className="xsw-panel-header">
@@ -204,7 +304,7 @@ function PropertiesPanelComponent({
             {selectedNode.data.entryActions?.length ? (
               selectedNode.data.entryActions.map((action, i) => (
                 <span key={i} className="xsw-badge xsw-badge-entry">
-                  {action}
+                  {typeof action === 'string' ? action : action.name}
                 </span>
               ))
             ) : (
@@ -227,7 +327,7 @@ function PropertiesPanelComponent({
             {selectedNode.data.exitActions?.length ? (
               selectedNode.data.exitActions.map((action, i) => (
                 <span key={i} className="xsw-badge xsw-badge-exit">
-                  {action}
+                  {typeof action === 'string' ? action : action.name}
                 </span>
               ))
             ) : (

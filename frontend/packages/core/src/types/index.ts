@@ -12,6 +12,7 @@ export type DomainNodeType =
   | 'threshold_gate'
   | 'classification_branch'
   | 'approval'
+  | 'parallel_approval'
   | 'auto_action'
   | 'end';
 
@@ -362,6 +363,25 @@ export interface ApprovalNodeData extends WorkflowNodeData {
   };
 }
 
+// Parallel Approval Approver Configuration
+export interface ParallelApprover {
+  id: string;
+  label: string;
+  resolver: ResolverConfig;
+  required: boolean;
+}
+
+// Parallel Approval Node Data
+export interface ParallelApprovalNodeData extends WorkflowNodeData {
+  domainType: 'parallel_approval';
+  approvers: ParallelApprover[];
+  completionRule: 'all_required' | 'any_one' | 'quorum';
+  quorumCount?: number;  // For 'quorum' rule: how many must approve
+  onReject: 'reject_all' | 'continue_others';
+  slaHours?: number;
+  priority?: 'Low' | 'Medium' | 'High' | 'Urgent';
+}
+
 // Auto Action Types
 export type AutoActionType =
   | 'submit_document'
@@ -409,6 +429,7 @@ export type DomainNodeData =
   | ThresholdGateNodeData
   | ClassificationBranchNodeData
   | ApprovalNodeData
+  | ParallelApprovalNodeData
   | AutoActionNodeData
   | EndNodeData;
 
@@ -418,6 +439,7 @@ export const DOMAIN_NODE_COLORS: Record<DomainNodeType, string> = {
   threshold_gate: '#f59e0b',
   classification_branch: '#8b5cf6',
   approval: '#3b82f6',
+  parallel_approval: '#6366f1',  // Indigo for parallel approval
   auto_action: '#06b6d4',
   end: '#ef4444',
 } as const;

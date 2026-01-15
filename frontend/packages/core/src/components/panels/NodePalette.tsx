@@ -64,6 +64,12 @@ const DOMAIN_PALETTE_ITEMS: PaletteItem[] = [
     description: 'A state requiring human approval. Creates tasks assigned to users/roles. Configure assignees in properties.',
   },
   {
+    type: 'parallel_approval',
+    label: 'Parallel Approval',
+    icon: '👥',
+    description: 'Multiple approvers working in parallel. Configure completion rules: all required, any one, or quorum.',
+  },
+  {
     type: 'threshold_gate',
     label: 'Threshold Gate',
     icon: '◇',

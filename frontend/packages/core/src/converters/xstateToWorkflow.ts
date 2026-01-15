@@ -10,6 +10,7 @@ import type {
   XStateNodeType,
   DomainNodeType,
   ApprovalNodeData,
+  ParallelApprovalNodeData,
   ThresholdGateNodeData,
   ClassificationBranchNodeData,
   AutoActionNodeData,
@@ -456,6 +457,20 @@ function buildDomainNode(
         fallbackUser: meta.fallback_user as string | undefined,
         escalation: meta.escalation as ApprovalNodeData['escalation'],
       } as ApprovalNodeData;
+      break;
+
+    case 'parallel_approval':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'parallel',
+        domainType: 'parallel_approval',
+        approvers: meta.approvers as ParallelApprovalNodeData['approvers'],
+        completionRule: (meta.completion_rule as ParallelApprovalNodeData['completionRule']) || 'all_required',
+        quorumCount: meta.quorum_count as number | undefined,
+        onReject: (meta.on_reject as ParallelApprovalNodeData['onReject']) || 'reject_all',
+        slaHours: meta.sla_hours as number | undefined,
+        priority: meta.priority as 'Low' | 'Medium' | 'High' | 'Urgent' | undefined,
+      } as ParallelApprovalNodeData;
       break;
 
     case 'threshold_gate':

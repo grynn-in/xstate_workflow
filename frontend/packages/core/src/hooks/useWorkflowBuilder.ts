@@ -15,6 +15,14 @@ import type {
   WorkflowNodeData,
   WorkflowEdgeData,
   XStateNodeType,
+  DomainNodeType,
+  StartNodeData,
+  EndNodeData,
+  ApprovalNodeData,
+  ParallelApprovalNodeData,
+  ThresholdGateNodeData,
+  ClassificationBranchNodeData,
+  AutoActionNodeData,
 } from '../types';
 
 let nodeIdCounter = 0;
@@ -25,6 +33,106 @@ function generateNodeId(): string {
 
 function generateEdgeId(): string {
   return `edge_${Date.now()}_${++nodeIdCounter}`;
+}
+
+// Domain node types that need special initialization
+const DOMAIN_NODE_TYPES: DomainNodeType[] = [
+  'start', 'end', 'approval', 'parallel_approval',
+  'threshold_gate', 'classification_branch', 'auto_action'
+];
+
+function isDomainNodeType(type: string): type is DomainNodeType {
+  return DOMAIN_NODE_TYPES.includes(type as DomainNodeType);
+}
+
+/**
+ * Get default node data based on node type
+ */
+function getDefaultNodeData(type: string, isFirst: boolean): WorkflowNodeData {
+  const baseData: WorkflowNodeData = {
+    label: `new_${type}`,
+    xstateType: 'atomic',
+    isInitial: isFirst,
+  };
+
+  if (!isDomainNodeType(type)) {
+    // XState primitive types
+    return {
+      ...baseData,
+      xstateType: type as XStateNodeType,
+    };
+  }
+
+  // Domain node types - each needs domainType and specific defaults
+  switch (type) {
+    case 'start':
+      return {
+        ...baseData,
+        label: 'Start',
+        domainType: 'start',
+        isInitial: true,
+      } as StartNodeData;
+
+    case 'end':
+      return {
+        ...baseData,
+        label: 'End',
+        xstateType: 'final',
+        domainType: 'end',
+        finalStatus: 'Completed',
+      } as EndNodeData;
+
+    case 'approval':
+      return {
+        ...baseData,
+        label: 'Approval',
+        domainType: 'approval',
+        resolver: { type: 'role', role: '' },
+        availableActions: ['Approve', 'Reject'],
+        priority: 'Medium',
+      } as ApprovalNodeData;
+
+    case 'parallel_approval':
+      return {
+        ...baseData,
+        label: 'Parallel Approval',
+        domainType: 'parallel_approval',
+        approvers: [],
+        completionRule: 'all_required',
+        onReject: 'reject_all',
+        priority: 'Medium',
+      } as ParallelApprovalNodeData;
+
+    case 'threshold_gate':
+      return {
+        ...baseData,
+        label: 'Threshold Gate',
+        domainType: 'threshold_gate',
+        checkType: 'field',
+        threshold: { field: '', operator: 'gt', value: 0 },
+      } as ThresholdGateNodeData;
+
+    case 'classification_branch':
+      return {
+        ...baseData,
+        label: 'Classification',
+        domainType: 'classification_branch',
+        field: '',
+        branches: [],
+      } as ClassificationBranchNodeData;
+
+    case 'auto_action':
+      return {
+        ...baseData,
+        label: 'Auto Action',
+        domainType: 'auto_action',
+        actionType: 'update_field',
+        actionConfig: {},
+      } as AutoActionNodeData;
+
+    default:
+      return baseData;
+  }
 }
 
 export interface UseWorkflowBuilderOptions {
@@ -49,7 +157,7 @@ export interface UseWorkflowBuilderReturn {
   onNodesChange: (changes: any) => void;
   onEdgesChange: (changes: any) => void;
   onConnect: (connection: Connection) => void;
-  addNode: (type: XStateNodeType, position: { x: number; y: number }) => void;
+  addNode: (type: XStateNodeType | DomainNodeType, position: { x: number; y: number }) => void;
   updateNode: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   updateEdge: (edgeId: string, data: Partial<WorkflowEdgeData>) => void;
   deleteSelected: () => void;
@@ -110,16 +218,13 @@ export function useWorkflowBuilder(options: UseWorkflowBuilderOptions = {}): Use
 
   // Add a new node
   const addNode = useCallback(
-    (type: XStateNodeType, position: { x: number; y: number }) => {
+    (type: XStateNodeType | DomainNodeType, position: { x: number; y: number }) => {
+      const isFirst = nodes.length === 0;
       const newNode: WorkflowNode = {
         id: generateNodeId(),
         type,
         position,
-        data: {
-          label: `new_${type}`,
-          xstateType: type,
-          isInitial: nodes.length === 0, // First node is initial
-        },
+        data: getDefaultNodeData(type, isFirst),
       };
 
       setNodes((nds) => [...nds, newNode as unknown as Node]);
