@@ -43,6 +43,7 @@ import {
   getDocTypes,
   getDocTypeFields,
   getRoles,
+  getUsers,
   type MachineListItem,
 } from '@xstate-workflow/frappe-adapter';
 
@@ -64,6 +65,7 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
   const [doctypesList, setDoctypesList] = useState<string[]>([]);
   const [doctypeFields, setDoctypeFields] = useState<FrappeField[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ name: string; full_name: string }>>([]);
 
   // Workflow list for selector
   const [workflowsList, setWorkflowsList] = useState<MachineListItem[]>([]);
@@ -161,10 +163,11 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     [onHelperLinesDragEnd]
   );
 
-  // Fetch doctypes list, roles, and workflows on mount
+  // Fetch doctypes list, roles, users, and workflows on mount
   useEffect(() => {
     getDocTypes().then(setDoctypesList).catch(console.error);
     getRoles().then(setAvailableRoles).catch(console.error);
+    getUsers().then(setAvailableUsers).catch(console.error);
     listMachines(undefined, true).then(setWorkflowsList).catch(console.error);
   }, []);
 
@@ -632,6 +635,9 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
             onEdgeChange={updateEdge}
             doctypeFields={doctypeFields}
             availableRoles={availableRoles}
+            availableDoctypes={doctypesList}
+            availableUsers={availableUsers}
+            onFetchDoctypeFields={getDocTypeFields}
           />
         </ResizablePanel>
       </div>

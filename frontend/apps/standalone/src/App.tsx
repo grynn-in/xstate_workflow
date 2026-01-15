@@ -31,6 +31,11 @@ import {
   loadMachine,
   showSuccess,
   showError,
+  getDocTypes,
+  getDocTypeFields,
+  getRoles,
+  getUsers,
+  type FrappeField,
 } from '@xstate-workflow/frappe-adapter';
 
 interface AppProps {
@@ -45,6 +50,12 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+
+  // Data for property panels
+  const [doctypesList, setDoctypesList] = useState<string[]>([]);
+  const [doctypeFields, setDoctypeFields] = useState<FrappeField[]>([]);
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ name: string; full_name: string }>>([]);
 
   const {
     nodes,
@@ -64,6 +75,22 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
   } = useWorkflowBuilder({
     onChange: () => setHasUnsavedChanges(true),
   });
+
+  // Fetch doctypes, roles, and users on mount
+  useEffect(() => {
+    getDocTypes().then(setDoctypesList).catch(console.error);
+    getRoles().then(setAvailableRoles).catch(console.error);
+    getUsers().then(setAvailableUsers).catch(console.error);
+  }, []);
+
+  // Fetch doctype fields when attachedDoctype changes
+  useEffect(() => {
+    if (attachedDoctype) {
+      getDocTypeFields(attachedDoctype).then(setDoctypeFields).catch(console.error);
+    } else {
+      setDoctypeFields([]);
+    }
+  }, [attachedDoctype]);
 
   // Load existing machine
   useEffect(() => {
@@ -282,6 +309,11 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
           selectedEdge={selectedEdge}
           onNodeChange={updateNode}
           onEdgeChange={updateEdge}
+          doctypeFields={doctypeFields}
+          availableRoles={availableRoles}
+          availableDoctypes={doctypesList}
+          availableUsers={availableUsers}
+          onFetchDoctypeFields={getDocTypeFields}
         />
       </div>
     </div>

@@ -31,7 +31,9 @@ import '@xstate-workflow/core/styles';
 import {
   loadMachine,
   getDocTypeFields,
+  getDocTypes,
   getRoles,
+  getUsers,
 } from '@xstate-workflow/frappe-adapter';
 
 interface WorkflowBuilderWidgetProps {
@@ -50,6 +52,8 @@ export function WorkflowBuilderWidget({
   const [isLoading, setIsLoading] = useState(true);
   const [doctypeFields, setDoctypeFields] = useState<FrappeField[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  const [availableDoctypes, setAvailableDoctypes] = useState<string[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ name: string; full_name: string }>>([]);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
 
@@ -75,9 +79,15 @@ export function WorkflowBuilderWidget({
     const loadData = async () => {
       setIsLoading(true);
       try {
-        // Load roles
-        const roles = await getRoles();
+        // Load roles, doctypes, and users in parallel
+        const [roles, doctypes, users] = await Promise.all([
+          getRoles(),
+          getDocTypes(),
+          getUsers(),
+        ]);
         setAvailableRoles(roles);
+        setAvailableDoctypes(doctypes);
+        setAvailableUsers(users);
 
         // Load doctype fields if attached
         if (attachedDoctype) {
@@ -268,6 +278,9 @@ export function WorkflowBuilderWidget({
           onEdgeChange={updateEdge}
           doctypeFields={doctypeFields}
           availableRoles={availableRoles}
+          availableDoctypes={availableDoctypes}
+          availableUsers={availableUsers}
+          onFetchDoctypeFields={getDocTypeFields}
         />
       </ResizablePanel>
     </div>

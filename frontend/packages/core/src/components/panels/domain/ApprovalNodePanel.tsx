@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from 'react';
+import { memo, useState, useCallback, useEffect } from 'react';
 import type {
   ApprovalNodeData,
   ResolverConfig,
@@ -10,19 +10,22 @@ export interface ApprovalNodePanelProps {
   doctypeFields?: FrappeField[];
   availableRoles?: string[];
   availableDoctypes?: string[];
+  availableUsers?: Array<{ name: string; full_name: string }>;
   onDataChange: (data: Partial<ApprovalNodeData>) => void;
+  onFetchDoctypeFields?: (doctype: string) => Promise<FrappeField[]>;
 }
-
-type ResolverSubPanel = 'none' | 'role' | 'static_user' | 'document_field' | 'linked_doc_field' | 'hierarchy_walk';
 
 function ApprovalNodePanelComponent({
   data,
   doctypeFields = [],
   availableRoles = [],
   availableDoctypes = [],
+  availableUsers = [],
   onDataChange,
+  onFetchDoctypeFields,
 }: ApprovalNodePanelProps) {
-  const [resolverSubPanel, setResolverSubPanel] = useState<ResolverSubPanel>('none');
+  // Fields for the selected hierarchy doctype
+  const [hierarchyDoctypeFields, setHierarchyDoctypeFields] = useState<FrappeField[]>([]);
 
   const handleResolverTypeChange = useCallback((type: ResolverConfig['type']) => {
     // Create default config for each resolver type
@@ -90,6 +93,20 @@ function ApprovalNodePanelComponent({
     });
   }, [data.availableActions, onDataChange]);
 
+  // Fetch fields when hierarchy doctype changes
+  useEffect(() => {
+    if (data.resolver?.type === 'hierarchy_walk' && onFetchDoctypeFields) {
+      const hierarchyDoctype = (data.resolver as { hierarchy_doctype?: string }).hierarchy_doctype;
+      if (hierarchyDoctype) {
+        onFetchDoctypeFields(hierarchyDoctype)
+          .then(setHierarchyDoctypeFields)
+          .catch(() => setHierarchyDoctypeFields([]));
+      } else {
+        setHierarchyDoctypeFields([]);
+      }
+    }
+  }, [data.resolver, onFetchDoctypeFields]);
+
   // User link fields from doctype
   const userLinkFields = doctypeFields.filter(f =>
     f.fieldtype === 'Link' && f.options === 'User'
@@ -97,6 +114,14 @@ function ApprovalNodePanelComponent({
 
   // All link fields
   const linkFields = doctypeFields.filter(f => f.fieldtype === 'Link');
+
+  // Fields from hierarchy doctype that link to parent records
+  const hierarchyLinkFields = hierarchyDoctypeFields.filter(f => f.fieldtype === 'Link');
+
+  // Fields from hierarchy doctype that link to User
+  const hierarchyUserFields = hierarchyDoctypeFields.filter(f =>
+    f.fieldtype === 'Link' && f.options === 'User'
+  );
 
   return (
     <div className="xsw-domain-panel xsw-approval-panel">
@@ -162,14 +187,19 @@ function ApprovalNodePanelComponent({
       {/* Static User Config */}
       {data.resolver?.type === 'static_user' && (
         <div className="xsw-panel-section">
-          <div className="xsw-panel-section-title">User ID</div>
-          <input
-            type="text"
-            className="xsw-input"
-            placeholder="user@example.com"
+          <div className="xsw-panel-section-title">User</div>
+          <select
+            className="xsw-select"
             value={(data.resolver as { user_id: string }).user_id || ''}
             onChange={(e) => handleResolverConfigChange({ user_id: e.target.value })}
-          />
+          >
+            <option value="">Select user...</option>
+            {availableUsers.map(user => (
+              <option key={user.name} value={user.name}>
+                {user.full_name || user.name} ({user.name})
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
@@ -225,31 +255,50 @@ function ApprovalNodePanelComponent({
       {data.resolver?.type === 'hierarchy_walk' && (
         <div className="xsw-panel-section">
           <div className="xsw-panel-section-title">Hierarchy DocType</div>
-          <input
-            type="text"
-            className="xsw-input"
-            placeholder="e.g., Employee, Approver"
+          <select
+            className="xsw-select"
             value={(data.resolver as { hierarchy_doctype: string }).hierarchy_doctype || ''}
             onChange={(e) => handleResolverConfigChange({ hierarchy_doctype: e.target.value })}
-          />
+          >
+            <option value="">Select doctype...</option>
+            {availableDoctypes.map(dt => (
+              <option key={dt} value={dt}>{dt}</option>
+            ))}
+          </select>
 
           <div className="xsw-panel-section-title" style={{ marginTop: '12px' }}>Parent Field</div>
-          <input
-            type="text"
-            className="xsw-input"
-            placeholder="e.g., reports_to, parent_approver"
+          <select
+            className="xsw-select"
             value={(data.resolver as { parent_field: string }).parent_field || ''}
             onChange={(e) => handleResolverConfigChange({ parent_field: e.target.value })}
-          />
+            disabled={!hierarchyLinkFields.length}
+          >
+            <option value="">
+              {hierarchyLinkFields.length ? 'Select field...' : 'Select doctype first'}
+            </option>
+            {hierarchyLinkFields.map(field => (
+              <option key={field.fieldname} value={field.fieldname}>
+                {field.label} → {field.options}
+              </option>
+            ))}
+          </select>
 
           <div className="xsw-panel-section-title" style={{ marginTop: '12px' }}>User Field</div>
-          <input
-            type="text"
-            className="xsw-input"
-            placeholder="e.g., user_id, user"
+          <select
+            className="xsw-select"
             value={(data.resolver as { user_field: string }).user_field || ''}
             onChange={(e) => handleResolverConfigChange({ user_field: e.target.value })}
-          />
+            disabled={!hierarchyUserFields.length}
+          >
+            <option value="">
+              {hierarchyUserFields.length ? 'Select field...' : 'Select doctype first'}
+            </option>
+            {hierarchyUserFields.map(field => (
+              <option key={field.fieldname} value={field.fieldname}>
+                {field.label} ({field.fieldname})
+              </option>
+            ))}
+          </select>
 
           <div className="xsw-panel-section-title" style={{ marginTop: '12px' }}>Start From</div>
           <select

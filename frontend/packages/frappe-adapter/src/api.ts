@@ -264,6 +264,33 @@ export async function getDocTypeFields(doctype: string): Promise<FrappeField[]> 
 }
 
 /**
+ * Get all users for assignment configuration
+ */
+export async function getUsers(): Promise<Array<{ name: string; full_name: string }>> {
+  if (!frappe) {
+    throw new Error('Frappe not available');
+  }
+
+  try {
+    const response = await frappe.xcall<Array<{ name: string; full_name: string }>>(
+      'frappe.client.get_list',
+      {
+        doctype: 'User',
+        filters: { enabled: 1, user_type: 'System User' },
+        fields: ['name', 'full_name'],
+        order_by: 'full_name asc',
+        limit_page_length: 0,
+      }
+    );
+
+    return (response || []).filter(u => u.name !== 'Guest' && u.name !== 'Administrator');
+  } catch (err) {
+    console.error('Failed to get users:', err);
+    return [];
+  }
+}
+
+/**
  * Get all roles for trigger configuration
  */
 export async function getRoles(): Promise<string[]> {

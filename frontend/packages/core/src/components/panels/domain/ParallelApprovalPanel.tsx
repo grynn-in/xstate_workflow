@@ -10,14 +10,20 @@ export interface ParallelApprovalPanelProps {
   data: ParallelApprovalNodeData;
   doctypeFields?: FrappeField[];
   availableRoles?: string[];
+  availableDoctypes?: string[];
+  availableUsers?: Array<{ name: string; full_name: string }>;
   onDataChange: (data: Partial<ParallelApprovalNodeData>) => void;
+  onFetchDoctypeFields?: (doctype: string) => Promise<FrappeField[]>;
 }
 
 function ParallelApprovalPanelComponent({
   data,
   doctypeFields = [],
   availableRoles = [],
+  availableDoctypes = [],
+  availableUsers = [],
   onDataChange,
+  onFetchDoctypeFields,
 }: ParallelApprovalPanelProps) {
   // User link fields from doctype
   const userLinkFields = doctypeFields.filter(f =>
@@ -185,15 +191,20 @@ function ParallelApprovalPanelComponent({
                 {approver.resolver?.type === 'static_user' && (
                   <div>
                     <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
-                      User ID
+                      User
                     </label>
-                    <input
-                      type="text"
-                      className="xsw-input"
-                      placeholder="user@example.com"
+                    <select
+                      className="xsw-select"
                       value={(approver.resolver as { user_id: string }).user_id || ''}
                       onChange={(e) => handleResolverConfigChange(approver.id, { user_id: e.target.value })}
-                    />
+                    >
+                      <option value="">Select user...</option>
+                      {availableUsers.map(user => (
+                        <option key={user.name} value={user.name}>
+                          {user.full_name || user.name} ({user.name})
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
 

@@ -24,8 +24,11 @@ export interface PropertiesPanelProps {
   selectedEdge?: WorkflowEdge;
   doctypeFields?: FrappeField[];
   availableRoles?: string[];
+  availableDoctypes?: string[];
+  availableUsers?: Array<{ name: string; full_name: string }>;
   onNodeChange?: (nodeId: string, data: Partial<WorkflowNode['data']>) => void;
   onEdgeChange?: (edgeId: string, data: Partial<WorkflowEdge['data']>) => void;
+  onFetchDoctypeFields?: (doctype: string) => Promise<FrappeField[]>;
 }
 
 type PanelMode = 'properties' | 'guard' | 'entry-actions' | 'exit-actions' | 'transition-actions' | 'trigger';
@@ -35,8 +38,11 @@ function PropertiesPanelComponent({
   selectedEdge,
   doctypeFields = [],
   availableRoles = ['System Manager', 'Administrator'],
+  availableDoctypes = [],
+  availableUsers = [],
   onNodeChange,
   onEdgeChange,
+  onFetchDoctypeFields,
 }: PropertiesPanelProps) {
   const [panelMode, setPanelMode] = useState<PanelMode>('properties');
 
@@ -194,7 +200,10 @@ function PropertiesPanelComponent({
               data={selectedNode.data as ApprovalNodeData}
               doctypeFields={doctypeFields}
               availableRoles={availableRoles}
+              availableDoctypes={availableDoctypes}
+              availableUsers={availableUsers}
               onDataChange={handleDomainDataChange}
+              onFetchDoctypeFields={onFetchDoctypeFields}
             />
           )}
 
@@ -203,7 +212,10 @@ function PropertiesPanelComponent({
               data={selectedNode.data as ParallelApprovalNodeData}
               doctypeFields={doctypeFields}
               availableRoles={availableRoles}
+              availableDoctypes={availableDoctypes}
+              availableUsers={availableUsers}
               onDataChange={handleDomainDataChange}
+              onFetchDoctypeFields={onFetchDoctypeFields}
             />
           )}
 
