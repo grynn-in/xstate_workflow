@@ -815,6 +815,716 @@ Use in workflow:
 
 ---
 
+## 3.2.1 Writing Conditions - Complete Guide
+
+This section provides detailed guidance on writing guard conditions for routing
+workflow transitions.
+
+### Understanding Conditional Routing
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 CONDITIONAL ROUTING FLOW                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│                    ┌─────────────────┐                          │
+│                    │  Current State  │                          │
+│                    └────────┬────────┘                          │
+│                             │                                    │
+│                             │ EVENT triggered                    │
+│                             ▼                                    │
+│                    ┌─────────────────┐                          │
+│                    │ Evaluate Guards │                          │
+│                    │  (conditions)   │                          │
+│                    └────────┬────────┘                          │
+│                             │                                    │
+│           ┌─────────────────┼─────────────────┐                 │
+│           │                 │                 │                  │
+│           ▼                 ▼                 ▼                  │
+│    ┌────────────┐    ┌────────────┐    ┌────────────┐          │
+│    │ Guard 1    │    │ Guard 2    │    │ No Guard   │          │
+│    │ amount>10k │    │ amount>50k │    │ (default)  │          │
+│    └─────┬──────┘    └─────┬──────┘    └─────┬──────┘          │
+│          │                 │                 │                   │
+│          ▼                 ▼                 ▼                   │
+│    ┌──────────┐      ┌──────────┐      ┌──────────┐            │
+│    │ Manager  │      │ Director │      │ Auto     │            │
+│    │ Approval │      │ Approval │      │ Approve  │            │
+│    └──────────┘      └──────────┘      └──────────┘            │
+│                                                                  │
+│   Guards are evaluated in ORDER - first match wins!            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Configuring Conditions in the Builder
+
+When you select a transition edge in the workflow builder, the Properties Panel
+shows condition configuration:
+
+```
+┌─────────────────────────────────────────┐
+│  TRANSITION: Draft → Review             │
+├─────────────────────────────────────────┤
+│                                         │
+│  Event Name: [SUBMIT              ]     │
+│                                         │
+│  ─── Condition (Guard) ───              │
+│                                         │
+│  Condition Type:                        │
+│  ┌─────────────────────────────────┐   │
+│  │ ○ No Condition (always pass)    │   │
+│  │ ● Simple (single field check)   │   │
+│  │ ○ Compound (multiple conditions)│   │
+│  │ ○ Role-based (user role check)  │   │
+│  │ ○ Python (custom code)          │   │
+│  └─────────────────────────────────┘   │
+│                                         │
+│  ─── Simple Condition ───               │
+│                                         │
+│  Field:    [grand_total          ▼]    │
+│  Operator: [is greater than      ▼]    │
+│  Value:    [10000                 ]    │
+│                                         │
+│  Preview: grand_total > 10000           │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+### Simple Conditions - Field Comparisons
+
+Simple conditions compare a document field against a value.
+
+#### Syntax
+
+```json
+{
+  "type": "simple",
+  "field": "<field_name>",
+  "operator": "<operator>",
+  "value": "<comparison_value>"
+}
+```
+
+#### Operators Reference
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    COMPARISON OPERATORS                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  EQUALITY                                                        │
+│  ─────────                                                       │
+│  eq     │ Equals              │ status eq "Draft"               │
+│  ne     │ Not equals          │ priority ne "Low"               │
+│                                                                  │
+│  NUMERIC                                                         │
+│  ───────                                                         │
+│  gt     │ Greater than        │ amount gt 1000                  │
+│  lt     │ Less than           │ quantity lt 10                  │
+│  gte    │ Greater or equal    │ score gte 80                    │
+│  lte    │ Less or equal       │ age lte 65                      │
+│                                                                  │
+│  MEMBERSHIP                                                      │
+│  ──────────                                                      │
+│  in     │ Value in list       │ status in ["A","B","C"]         │
+│  contains│ String contains    │ name contains "Test"            │
+│                                                                  │
+│  EXISTENCE                                                       │
+│  ─────────                                                       │
+│  is_set    │ Field has value  │ approver is_set                 │
+│  is_not_set│ Field is empty   │ rejection_reason is_not_set     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Examples
+
+**Check if amount exceeds threshold:**
+```json
+{
+  "type": "simple",
+  "field": "grand_total",
+  "operator": "gt",
+  "value": 10000
+}
+```
+
+**Check document status:**
+```json
+{
+  "type": "simple",
+  "field": "status",
+  "operator": "eq",
+  "value": "Pending"
+}
+```
+
+**Check if field is in a list:**
+```json
+{
+  "type": "simple",
+  "field": "category",
+  "operator": "in",
+  "value": ["Electronics", "Furniture", "Equipment"]
+}
+```
+
+**Check linked document field (dot notation):**
+```json
+{
+  "type": "simple",
+  "field": "customer.customer_group",
+  "operator": "eq",
+  "value": "VIP"
+}
+```
+
+**Check if approver is assigned:**
+```json
+{
+  "type": "simple",
+  "field": "custom_approver",
+  "operator": "is_set"
+}
+```
+
+### Compound Conditions - Multiple Checks
+
+Combine multiple conditions with AND/OR logic.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    COMPOUND CONDITIONS                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  AND Logic (all must be true)                                   │
+│  ────────────────────────────                                    │
+│                                                                  │
+│     amount > 10000                                               │
+│          AND                                                     │
+│     category = "Equipment"        ───▶  Director Approval       │
+│          AND                                                     │
+│     is_urgent = true                                            │
+│                                                                  │
+│                                                                  │
+│  OR Logic (any one is enough)                                   │
+│  ────────────────────────────                                    │
+│                                                                  │
+│     user_role = "Director"                                       │
+│          OR                        ───▶  Skip Approval          │
+│     amount < 100                                                │
+│          OR                                                      │
+│     is_preapproved = true                                       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### AND Condition
+
+All sub-conditions must be true:
+
+```json
+{
+  "type": "compound",
+  "operator": "and",
+  "conditions": [
+    {
+      "type": "simple",
+      "field": "grand_total",
+      "operator": "gt",
+      "value": 10000
+    },
+    {
+      "type": "simple",
+      "field": "category",
+      "operator": "eq",
+      "value": "Equipment"
+    },
+    {
+      "type": "simple",
+      "field": "is_urgent",
+      "operator": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+#### OR Condition
+
+At least one sub-condition must be true:
+
+```json
+{
+  "type": "compound",
+  "operator": "or",
+  "conditions": [
+    {
+      "type": "simple",
+      "field": "grand_total",
+      "operator": "lt",
+      "value": 1000
+    },
+    {
+      "type": "simple",
+      "field": "is_preapproved",
+      "operator": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+#### Nested Compound Conditions
+
+Combine AND and OR for complex logic:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Complex Condition Example                                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Route to Director if:                                          │
+│                                                                  │
+│     ( amount > 50000 )                                          │
+│           OR                                                     │
+│     ( amount > 10000 AND category = "Equipment" )               │
+│           OR                                                     │
+│     ( is_capital_expenditure = true )                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+```json
+{
+  "type": "compound",
+  "operator": "or",
+  "conditions": [
+    {
+      "type": "simple",
+      "field": "grand_total",
+      "operator": "gt",
+      "value": 50000
+    },
+    {
+      "type": "compound",
+      "operator": "and",
+      "conditions": [
+        {
+          "type": "simple",
+          "field": "grand_total",
+          "operator": "gt",
+          "value": 10000
+        },
+        {
+          "type": "simple",
+          "field": "category",
+          "operator": "eq",
+          "value": "Equipment"
+        }
+      ]
+    },
+    {
+      "type": "simple",
+      "field": "is_capital_expenditure",
+      "operator": "eq",
+      "value": true
+    }
+  ]
+}
+```
+
+### Role-Based Conditions
+
+Check if the current user has specific roles:
+
+```json
+{
+  "type": "role",
+  "roles": ["Purchase Manager", "Director", "CEO"]
+}
+```
+
+**Use case:** Allow certain users to bypass approval:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ROLE-BASED ROUTING                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│                    ┌───────────┐                                 │
+│                    │   Draft   │                                 │
+│                    └─────┬─────┘                                 │
+│                          │ SUBMIT                                │
+│                          ▼                                       │
+│               ┌─────────────────────┐                           │
+│               │   Check User Role   │                           │
+│               └──────────┬──────────┘                           │
+│                    ┌─────┴─────┐                                │
+│                    │           │                                 │
+│            [Director]     [Others]                              │
+│                    │           │                                 │
+│                    ▼           ▼                                 │
+│             ┌──────────┐ ┌───────────────┐                      │
+│             │ Approved │ │ Need Approval │                      │
+│             │    ◎     │ │      ◇        │                      │
+│             └──────────┘ └───────────────┘                      │
+│                                                                  │
+│   Directors skip approval, others go through normal flow       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Python Code Conditions
+
+For complex business logic that can't be expressed with simple/compound guards.
+
+#### Creating Python Guards
+
+1. Open the State Machine document
+2. Go to the "Guards" child table
+3. Add a new row:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  STATE MACHINE: Purchase Approval                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ─── Guards ───                                                  │
+│                                                                  │
+│  │ Guard Name          │ Description              │ Code       │
+│  ├─────────────────────┼──────────────────────────┼────────────│
+│  │ high_value_purchase │ Amount over 10k          │ [Edit]     │
+│  │ needs_director      │ Requires director sign   │ [Edit]     │
+│  │ budget_available    │ Check budget remaining   │ [Edit]     │
+│  │ + Add Row           │                          │            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Available Variables in Python Guards
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `doc` | Document | The Frappe document being processed |
+| `context` | dict | Workflow context variables |
+| `event` | dict | Event data passed to trigger |
+| `frappe` | module | Frappe framework module |
+
+#### Python Guard Examples
+
+**Simple field check:**
+```python
+# Guard name: high_value_purchase
+doc.grand_total > 10000
+```
+
+**Multiple conditions:**
+```python
+# Guard name: needs_director_approval
+doc.grand_total > 10000 and doc.category == "Equipment"
+```
+
+**Check workflow context:**
+```python
+# Guard name: already_approved_by_manager
+context.get('manager_approved') == True
+```
+
+**Date-based conditions:**
+```python
+# Guard name: is_end_of_quarter
+from frappe.utils import getdate, today
+current_date = getdate(today())
+current_date.month in [3, 6, 9, 12] and current_date.day > 25
+```
+
+**Check linked documents:**
+```python
+# Guard name: customer_has_credit
+customer = frappe.get_doc("Customer", doc.customer)
+customer.credit_limit > doc.grand_total
+```
+
+**Check user permissions:**
+```python
+# Guard name: user_is_owner_manager
+doc.owner == frappe.session.user or \
+frappe.db.exists("Employee", {
+    "user_id": frappe.session.user,
+    "reports_to": frappe.db.get_value("Employee", {"user_id": doc.owner}, "name")
+})
+```
+
+**Check approval history:**
+```python
+# Guard name: not_previously_rejected
+not any(
+    log.get('event') == 'REJECT'
+    for log in context.get('transition_history', [])
+)
+```
+
+**Complex business rule:**
+```python
+# Guard name: requires_finance_review
+# Orders over 5k need finance, or any order with payment terms > 30 days
+
+amount_threshold = doc.grand_total > 5000
+extended_terms = doc.payment_terms_template and \
+    frappe.db.get_value("Payment Terms Template",
+                        doc.payment_terms_template,
+                        "credit_days") > 30
+
+amount_threshold or extended_terms
+```
+
+#### Using Python Guards in Transitions
+
+Reference the guard by name in your workflow JSON:
+
+```json
+{
+  "pending_approval": {
+    "on": {
+      "APPROVE": [
+        {
+          "target": "director_approval",
+          "cond": "needs_director_approval"
+        },
+        {
+          "target": "finance_review",
+          "cond": "requires_finance_review"
+        },
+        {
+          "target": "approved"
+        }
+      ]
+    }
+  }
+}
+```
+
+### Multiple Transitions with Guards
+
+When an event has multiple possible targets, guards determine which one:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              MULTIPLE TRANSITION ROUTING                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Event: APPROVE from "manager_review" state                     │
+│                                                                  │
+│  Transitions evaluated in order:                                │
+│                                                                  │
+│    1. ─── [amount > 50000] ────────────▶ ceo_approval           │
+│           │                                                      │
+│           │ (guard fails, try next)                             │
+│           ▼                                                      │
+│    2. ─── [amount > 10000] ────────────▶ director_approval      │
+│           │                                                      │
+│           │ (guard fails, try next)                             │
+│           ▼                                                      │
+│    3. ─── [no guard / default] ────────▶ approved               │
+│                                                                  │
+│  First matching guard wins!                                     │
+│  Always put stricter conditions first.                          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**JSON Configuration:**
+
+```json
+{
+  "manager_review": {
+    "on": {
+      "APPROVE": [
+        {
+          "target": "ceo_approval",
+          "cond": {
+            "type": "simple",
+            "field": "grand_total",
+            "operator": "gt",
+            "value": 50000
+          }
+        },
+        {
+          "target": "director_approval",
+          "cond": {
+            "type": "simple",
+            "field": "grand_total",
+            "operator": "gt",
+            "value": 10000
+          }
+        },
+        {
+          "target": "approved"
+        }
+      ]
+    }
+  }
+}
+```
+
+### Always Transitions (Automatic Routing)
+
+Use `always` for automatic transitions that occur immediately when entering a state:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 ALWAYS TRANSITIONS                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│                    ┌───────────────┐                            │
+│                    │   Submitted   │                            │
+│                    └───────┬───────┘                            │
+│                            │                                     │
+│                            │ (immediately evaluates 'always')   │
+│                            ▼                                     │
+│                    ┌───────────────┐                            │
+│                    │    Router     │  ← Transient state         │
+│                    │   (always)    │    (no user action)        │
+│                    └───────┬───────┘                            │
+│           ┌────────────────┼────────────────┐                   │
+│           │                │                │                    │
+│      [amount>50k]    [amount>10k]     [default]                │
+│           │                │                │                    │
+│           ▼                ▼                ▼                    │
+│    ┌───────────┐    ┌───────────┐    ┌───────────┐             │
+│    │    CEO    │    │ Director  │    │  Manager  │             │
+│    │  Approval │    │ Approval  │    │ Approval  │             │
+│    └───────────┘    └───────────┘    └───────────┘             │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+```json
+{
+  "submitted": {
+    "on": {
+      "SUBMIT": "router"
+    }
+  },
+  "router": {
+    "always": [
+      {
+        "target": "ceo_approval",
+        "cond": {
+          "type": "simple",
+          "field": "grand_total",
+          "operator": "gt",
+          "value": 50000
+        }
+      },
+      {
+        "target": "director_approval",
+        "cond": {
+          "type": "simple",
+          "field": "grand_total",
+          "operator": "gt",
+          "value": 10000
+        }
+      },
+      {
+        "target": "manager_approval"
+      }
+    ]
+  }
+}
+```
+
+### Common Condition Patterns
+
+#### Pattern 1: Threshold-Based Routing
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Amount-based approval levels                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  $0 - $1,000      →  Auto-approve                              │
+│  $1,001 - $10,000 →  Manager approval                          │
+│  $10,001 - $50,000 → Director approval                         │
+│  $50,001+         →  CEO approval                              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Pattern 2: Category-Based Routing
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Route by document category                                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  IT Equipment     →  IT Manager                                 │
+│  Office Supplies  →  Admin Manager                              │
+│  Marketing        →  Marketing Director                         │
+│  Capital Assets   →  CFO                                        │
+│  Other            →  General Manager                            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Pattern 3: Department + Amount Combo
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Combined routing logic                                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  IF department = "Sales" AND amount > 5000                     │
+│     → Sales Director                                            │
+│                                                                  │
+│  ELSE IF department = "Engineering" AND amount > 10000         │
+│     → CTO                                                       │
+│                                                                  │
+│  ELSE IF amount > 25000                                        │
+│     → CFO                                                       │
+│                                                                  │
+│  ELSE                                                           │
+│     → Department Manager                                        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Debugging Conditions
+
+When conditions don't work as expected:
+
+1. **Check the transition log:**
+```python
+instance = frappe.get_doc("Machine Instance", {
+    "reference_doctype": "Purchase Order",
+    "reference_name": "PO-00123"
+})
+for entry in instance.transition_log[-5:]:
+    print(f"Event: {entry.get('event')}")
+    print(f"Guards evaluated: {entry.get('guards_evaluated')}")
+    print(f"Result: {entry.get('guard_results')}")
+```
+
+2. **Test guards manually:**
+```python
+# In bench console
+doc = frappe.get_doc("Purchase Order", "PO-00123")
+print(f"grand_total: {doc.grand_total}")
+print(f"category: {doc.category}")
+print(f"Condition result: {doc.grand_total > 10000}")
+```
+
+3. **Check guard syntax in State Machine:**
+```python
+sm = frappe.get_doc("State Machine", "purchase_approval")
+for guard in sm.guards_table:
+    print(f"{guard.guard_name}: {guard.python_code}")
+```
+
+---
+
 ## 3.3 Actions
 
 Actions are side effects executed during state transitions.
