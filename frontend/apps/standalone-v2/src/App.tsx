@@ -1,0 +1,480 @@
+import { useCallback, useEffect, useState, useRef, type DragEvent } from 'react';
+import {
+  ReactFlow,
+  Controls,
+  MiniMap,
+  Background,
+  BackgroundVariant,
+  type NodeMouseHandler,
+  type EdgeMouseHandler,
+  type ReactFlowInstance,
+  type NodeDragHandler,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+
+// Import from core-v2 which re-exports core + v2 enhancements
+import {
+  allNodeTypes,
+  edgeTypes,
+  PropertiesPanel,
+  NodePalette,
+  HelperLines,
+  useWorkflowBuilderWithHistory,
+  useCopyPaste,
+  useHelperLines,
+  workflowToXState,
+  xstateToWorkflow,
+  type WorkflowBuilderConfig,
+  type WorkflowNode,
+  type WorkflowEdge,
+  type XStateNodeType,
+} from '@xstate-workflow/core-v2';
+import '@xstate-workflow/core/styles';
+import '@xstate-workflow/core-v2/styles';
+
+import {
+  saveMachine,
+  loadMachine,
+  showSuccess,
+  showError,
+} from '@xstate-workflow/frappe-adapter';
+
+interface AppProps {
+  machineId?: string;
+  attachedDoctype?: string;
+}
+
+export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) {
+  const [machineId, setMachineId] = useState<string | undefined>(initialMachineId);
+  const [machineTitle, setMachineTitle] = useState('New Workflow');
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+
+  const {
+    nodes,
+    edges,
+    selectedNode,
+    selectedEdge,
+    setSelectedNode,
+    setSelectedEdge,
+    setNodes,
+    setEdges,
+    onNodesChange,
+    onEdgesChange,
+    onConnect,
+    addNode,
+    updateNode,
+    updateEdge,
+    getConfig,
+    loadConfig,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    takeSnapshot,
+  } = useWorkflowBuilderWithHistory({
+    onChange: () => setHasUnsavedChanges(true),
+    maxHistorySize: 50,
+    debounceMs: 500,
+  });
+
+  // Copy/Paste functionality
+  const {
+    copy,
+    paste,
+    cut,
+    canPaste,
+  } = useCopyPaste({
+    nodes: nodes as WorkflowNode[],
+    edges: edges as WorkflowEdge[],
+    selectedNodeIds: selectedNode ? [selectedNode.id] : [],
+    pasteOffset: { x: 50, y: 50 },
+    onCopy: () => {
+      // Optional: show toast notification
+    },
+    onPaste: (newNodes, newEdges) => {
+      // Add pasted nodes and edges
+      setNodes((prev) => [...prev, ...newNodes] as any);
+      setEdges((prev) => [...prev, ...newEdges] as any);
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+    },
+    onCut: (nodeIds) => {
+      // Remove cut nodes and their connected edges
+      setNodes((prev) => prev.filter((n) => !nodeIds.includes(n.id)));
+      setEdges((prev) =>
+        prev.filter((e) => !nodeIds.includes(e.source) && !nodeIds.includes(e.target))
+      );
+      setSelectedNode(undefined);
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+    },
+  });
+
+  // Helper lines for node alignment
+  const {
+    horizontalLines,
+    verticalLines,
+    onNodeDrag: onHelperLinesDrag,
+    onNodeDragEnd: onHelperLinesDragEnd,
+  } = useHelperLines({
+    nodes: nodes.map((n) => ({
+      id: n.id,
+      position: n.position,
+      measured: n.measured,
+    })),
+    threshold: 5,
+    enableSnapping: false, // Can be enabled for snap-to-grid behavior
+  });
+
+  // Handle node drag for helper lines
+  const handleNodeDrag: NodeDragHandler = useCallback(
+    (_, node) => {
+      onHelperLinesDrag(node.id, node.position);
+    },
+    [onHelperLinesDrag]
+  );
+
+  // Handle node drag end
+  const handleNodeDragStop: NodeDragHandler = useCallback(
+    () => {
+      onHelperLinesDragEnd();
+    },
+    [onHelperLinesDragEnd]
+  );
+
+  // Load existing machine
+  useEffect(() => {
+    console.log('useEffect triggered, initialMachineId:', initialMachineId);
+    if (initialMachineId) {
+      console.log('Calling loadMachine...');
+      loadMachine(initialMachineId)
+        .then((data) => {
+          console.log('Loaded machine data:', data);
+          console.log('json_config exists:', !!data.json_config);
+          setMachineTitle(data.title);
+
+          if (data.json_config) {
+            // Always convert from XState config to get full node data (labels, metadata)
+            const xstate = JSON.parse(data.json_config);
+
+            // Use workflow_builder_config for positions if available
+            let existingLayout: WorkflowBuilderConfig | undefined;
+            if (data.workflow_builder_config) {
+              try {
+                existingLayout = JSON.parse(data.workflow_builder_config) as WorkflowBuilderConfig;
+              } catch {
+                // Ignore parsing errors
+              }
+            }
+
+            const config = xstateToWorkflow(xstate, existingLayout);
+            console.log('Converted config:', JSON.stringify(config, null, 2));
+            console.log('Nodes:', config.nodes.map(n => ({ id: n.id, type: n.type, label: n.data?.label })));
+            loadConfig(config);
+          }
+
+          setHasUnsavedChanges(false);
+        })
+        .catch((err) => {
+          console.error('Load machine error:', err);
+          showError(`Failed to load workflow: ${err.message}`);
+        });
+    }
+  }, [initialMachineId, loadConfig]);
+
+  // Keyboard shortcuts for undo/redo and copy/paste/cut
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check if focus is on an input/textarea (don't intercept typing)
+      const target = event.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // Ctrl+Z / Cmd+Z for undo
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        if (canUndo) {
+          undo();
+        }
+      }
+
+      // Ctrl+Shift+Z / Cmd+Shift+Z for redo (common on Mac)
+      // Ctrl+Y / Cmd+Y for redo (common on Windows)
+      if (
+        ((event.ctrlKey || event.metaKey) && event.key === 'z' && event.shiftKey) ||
+        ((event.ctrlKey || event.metaKey) && event.key === 'y')
+      ) {
+        event.preventDefault();
+        if (canRedo) {
+          redo();
+        }
+      }
+
+      // Ctrl+C / Cmd+C for copy
+      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+        event.preventDefault();
+        copy();
+      }
+
+      // Ctrl+V / Cmd+V for paste
+      if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+        event.preventDefault();
+        if (canPaste) {
+          paste();
+        }
+      }
+
+      // Ctrl+X / Cmd+X for cut
+      if ((event.ctrlKey || event.metaKey) && event.key === 'x') {
+        event.preventDefault();
+        cut();
+      }
+
+      // Delete / Backspace for delete selected
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (selectedNode) {
+          event.preventDefault();
+          const nodeId = selectedNode.id;
+          setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+          setEdges((prev) =>
+            prev.filter((e) => e.source !== nodeId && e.target !== nodeId)
+          );
+          setSelectedNode(undefined);
+          setHasUnsavedChanges(true);
+          takeSnapshot();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [undo, redo, canUndo, canRedo, copy, paste, cut, canPaste, selectedNode, setNodes, setEdges, setSelectedNode, takeSnapshot]);
+
+  // Handle node click
+  const onNodeClick: NodeMouseHandler = useCallback(
+    (_, node) => {
+      setSelectedNode(node as WorkflowNode);
+    },
+    [setSelectedNode]
+  );
+
+  // Handle edge click
+  const onEdgeClick: EdgeMouseHandler = useCallback(
+    (_, edge) => {
+      setSelectedEdge(edge as WorkflowEdge);
+    },
+    [setSelectedEdge]
+  );
+
+  // Handle pane click (deselect)
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(undefined);
+    setSelectedEdge(undefined);
+  }, [setSelectedNode, setSelectedEdge]);
+
+  // Handle save
+  const handleSave = useCallback(async () => {
+    setIsSaving(true);
+    try {
+      const config = getConfig();
+      const xstate = workflowToXState(config);
+
+      const result = await saveMachine(
+        machineId || null,
+        machineTitle,
+        xstate,
+        config,
+        attachedDoctype
+      );
+
+      setMachineId(result.name);
+      setHasUnsavedChanges(false);
+      showSuccess('Workflow saved successfully');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      showError(`Failed to save: ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [getConfig, machineId, machineTitle, attachedDoctype]);
+
+  // Handle add node from palette (click)
+  const handleAddNode = useCallback(
+    (type: XStateNodeType, position: { x: number; y: number }) => {
+      addNode(type, position);
+      setHasUnsavedChanges(true);
+    },
+    [addNode]
+  );
+
+  // Handle drop from palette
+  const onDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+
+      const type = event.dataTransfer.getData('application/xstate-node-type') as XStateNodeType;
+      if (!type || !reactFlowInstance || !reactFlowWrapper.current) return;
+
+      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX - reactFlowBounds.left,
+        y: event.clientY - reactFlowBounds.top,
+      });
+
+      addNode(type, position);
+      setHasUnsavedChanges(true);
+    },
+    [reactFlowInstance, addNode]
+  );
+
+  // Handle export
+  const handleExport = useCallback(() => {
+    const config = getConfig();
+    const xstate = workflowToXState(config);
+    const blob = new Blob([JSON.stringify(xstate, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${machineTitle.toLowerCase().replace(/\s+/g, '_')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [getConfig, machineTitle]);
+
+  return (
+    <div className="xsw-layout">
+      {/* Toolbar */}
+      <div className="xsw-layout-toolbar">
+        <div className="xsw-toolbar">
+          <div className="xsw-toolbar-left">
+            <span style={{ fontSize: '20px' }}>&#x2B21;</span>
+            <input
+              type="text"
+              className="xsw-input"
+              style={{ width: '200px', fontWeight: 600 }}
+              value={machineTitle}
+              onChange={(e) => {
+                setMachineTitle(e.target.value);
+                setHasUnsavedChanges(true);
+              }}
+            />
+            {attachedDoctype && (
+              <span className="xsw-toolbar-doctype">{attachedDoctype}</span>
+            )}
+            {hasUnsavedChanges && (
+              <span style={{ color: '#f59e0b', fontSize: '12px' }}>&#x25CF; Unsaved</span>
+            )}
+            <span
+              style={{
+                marginLeft: '8px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                fontWeight: 600,
+                background: '#3b82f6',
+                color: 'white',
+                borderRadius: '4px',
+              }}
+            >
+              V2
+            </span>
+          </div>
+          <div className="xsw-toolbar-right">
+            {/* Undo/Redo buttons */}
+            <div style={{ display: 'flex', gap: '2px', marginRight: '8px' }}>
+              <button
+                className="xsw-button xsw-button-secondary"
+                onClick={undo}
+                disabled={!canUndo}
+                title="Undo (Ctrl+Z)"
+                style={{ padding: '4px 8px', minWidth: 'auto' }}
+              >
+                &#x21B6;
+              </button>
+              <button
+                className="xsw-button xsw-button-secondary"
+                onClick={redo}
+                disabled={!canRedo}
+                title="Redo (Ctrl+Shift+Z)"
+                style={{ padding: '4px 8px', minWidth: 'auto' }}
+              >
+                &#x21B7;
+              </button>
+            </div>
+            <button
+              className="xsw-button xsw-button-secondary"
+              onClick={handleExport}
+            >
+              Export
+            </button>
+            <button
+              className="xsw-button xsw-button-primary"
+              onClick={handleSave}
+              disabled={isSaving}
+            >
+              {isSaving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Node Palette */}
+      <div className="xsw-layout-palette">
+        <NodePalette onAddNode={handleAddNode} />
+      </div>
+
+      {/* Canvas */}
+      <div className="xsw-layout-canvas" ref={reactFlowWrapper}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={allNodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={onNodeClick}
+          onEdgeClick={onEdgeClick}
+          onPaneClick={onPaneClick}
+          onNodeDrag={handleNodeDrag}
+          onNodeDragStop={handleNodeDragStop}
+          onInit={setReactFlowInstance}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+          fitView
+          className="xsw-canvas"
+          defaultEdgeOptions={{
+            type: 'transition',
+          }}
+        >
+          <Controls />
+          <MiniMap className="xsw-minimap" />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <HelperLines
+            horizontalLines={horizontalLines}
+            verticalLines={verticalLines}
+          />
+        </ReactFlow>
+      </div>
+
+      {/* Properties Panel */}
+      <div className="xsw-layout-panel">
+        <PropertiesPanel
+          selectedNode={selectedNode}
+          selectedEdge={selectedEdge}
+          onNodeChange={updateNode}
+          onEdgeChange={updateEdge}
+        />
+      </div>
+    </div>
+  );
+}

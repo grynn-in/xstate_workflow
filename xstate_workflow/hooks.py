@@ -53,11 +53,15 @@ website_context = {
 
 # Website route rules
 website_route_rules = [
+    # V1 routes (current production)
     {"from_route": "/xstate-builder", "to_route": "xstate-builder"},
     {"from_route": "/xstate-builder/<machine_id>", "to_route": "xstate-builder"},
     {"from_route": "/xstate-viewer", "to_route": "xstate-viewer"},
     {"from_route": "/xstate-viewer/<machine_id>", "to_route": "xstate-viewer"},
     {"from_route": "/my-approvals", "to_route": "my-approvals"},
+    # V2 routes (enhanced development)
+    {"from_route": "/xstate-builder-v2", "to_route": "xstate-builder-v2"},
+    {"from_route": "/xstate-builder-v2/<machine_id>", "to_route": "xstate-builder-v2"},
 ]
 
 # ============================================================================
