@@ -3043,6 +3043,207 @@ print(instance.transition_log)
 
 ---
 
+#### Invalid Workflow Configuration - Submittable DocType Error
+
+**Error Message:**
+```
+Invalid Workflow Configuration
+
+Workflow for submittable doctype 'Purchase Invoice' must have a final
+state that allows submission (e.g., 'approved', 'completed', or a
+state with type='submit' in domain_node)
+```
+
+**Why This Happens:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│            SUBMITTABLE DOCTYPE WORKFLOW REQUIREMENT              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Frappe has TWO types of DocTypes:                              │
+│                                                                  │
+│  1. NON-SUBMITTABLE (e.g., Contact, Customer)                   │
+│     ─────────────────────────────────────────                    │
+│     - Documents can be saved/edited freely                      │
+│     - No submission step required                               │
+│     - Workflow can end in any final state                       │
+│                                                                  │
+│  2. SUBMITTABLE (e.g., Purchase Invoice, Sales Order)           │
+│     ───────────────────────────────────────────────              │
+│     - Documents go through: Draft → Submitted → Cancelled       │
+│     - Submission is a CRITICAL business action                  │
+│     - Once submitted, document becomes read-only                │
+│     - Workflow MUST have a state that triggers submission       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+When you attach a workflow to a **submittable** DocType (like Purchase Invoice,
+Sales Order, Journal Entry), the system validates that your workflow can
+actually submit the document. Without this, documents would get stuck in
+"Draft" status forever, even after workflow approval.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    THE PROBLEM                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ❌ WRONG: Workflow ends but document stays in Draft            │
+│                                                                  │
+│      ○ Start                                                    │
+│         │                                                        │
+│         ▼                                                        │
+│    ┌─────────┐      ┌──────────────┐      ┌──────────┐          │
+│    │  Draft  │─────▶│   Approval   │─────▶│ Approved │◎         │
+│    └─────────┘      └──────────────┘      └──────────┘          │
+│                                                                  │
+│    Document status: Draft ──────────────▶ Still Draft! ⚠️       │
+│    (Never gets submitted)                                       │
+│                                                                  │
+│                                                                  │
+│  ✓ CORRECT: Final state triggers document submission            │
+│                                                                  │
+│      ○ Start                                                    │
+│         │                                                        │
+│         ▼                                                        │
+│    ┌─────────┐      ┌──────────────┐      ┌──────────┐          │
+│    │  Draft  │─────▶│   Approval   │─────▶│ Approved │◎         │
+│    └─────────┘      └──────────────┘      └──────────┘          │
+│                                                 │                │
+│                                          autoSubmit: true       │
+│                                                 │                │
+│                                                 ▼                │
+│    Document status: Draft ──────────────▶ Submitted ✓           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Solutions:**
+
+**Option 1: Use Auto-Submit on Final State (Recommended)**
+
+Add `autoSubmit: true` to your approved/completed final state:
+
+```json
+{
+  "states": {
+    "approved": {
+      "type": "final",
+      "meta": {
+        "autoSubmit": true
+      }
+    }
+  }
+}
+```
+
+**Option 2: Use Recognized State Names**
+
+Name your final state one of these recognized names:
+- `approved`
+- `completed`
+- `submitted`
+- `done`
+- `finished`
+
+```json
+{
+  "states": {
+    "approved": {
+      "type": "final"
+    }
+  }
+}
+```
+
+**Option 3: Use Domain Node with Submit Type**
+
+Set `type: "submit"` in the domain_node metadata:
+
+```json
+{
+  "states": {
+    "final_review_complete": {
+      "type": "final",
+      "meta": {
+        "domain_node": {
+          "type": "submit",
+          "label": "Final Review Complete"
+        }
+      }
+    }
+  }
+}
+```
+
+**Option 4: Add Submit Document Action**
+
+Add the `submit_document` action to your final state's entry:
+
+```json
+{
+  "states": {
+    "approved": {
+      "type": "final",
+      "entry": ["submit_document"]
+    }
+  }
+}
+```
+
+**Complete Example for Submittable DocType:**
+
+```json
+{
+  "id": "purchase_invoice_approval",
+  "initial": "draft",
+  "states": {
+    "draft": {
+      "on": { "SUBMIT_FOR_APPROVAL": "pending_approval" }
+    },
+    "pending_approval": {
+      "meta": {
+        "domain_node": {
+          "type": "approval",
+          "assignment": { "type": "role", "role": "Accounts Manager" }
+        }
+      },
+      "on": {
+        "APPROVE": "approved",
+        "REJECT": "rejected"
+      }
+    },
+    "approved": {
+      "type": "final",
+      "meta": {
+        "autoSubmit": true
+      }
+    },
+    "rejected": {
+      "type": "final"
+    }
+  }
+}
+```
+
+**Checking if a DocType is Submittable:**
+
+```python
+# In bench console
+meta = frappe.get_meta("Purchase Invoice")
+print(meta.is_submittable)  # True = submittable, needs special handling
+```
+
+**Common Submittable DocTypes:**
+- Purchase Invoice, Sales Invoice
+- Purchase Order, Sales Order
+- Journal Entry, Payment Entry
+- Stock Entry, Delivery Note
+- Material Request, Purchase Receipt
+
+---
+
 ## B. API Reference
 
 ### Workflow Engine
