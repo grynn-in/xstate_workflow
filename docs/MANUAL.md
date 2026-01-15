@@ -3121,6 +3121,111 @@ actually submit the document. Without this, documents would get stuck in
 
 **Solutions:**
 
+### Fix from the Workflow Builder UI
+
+**Step 1:** Select your final/end node (e.g., "Approved")
+
+**Step 2:** In the Properties Panel, enable Auto-Submit:
+
+```
+┌─────────────────────────────────────────┐
+│  NODE PROPERTIES                        │
+├─────────────────────────────────────────┤
+│                                         │
+│  ID:    [approved                   ]   │
+│  Label: [Approved                   ]   │
+│                                         │
+│  Node Type: End State                   │
+│                                         │
+│  ─── Final State Options ───            │
+│                                         │
+│  [✓] Auto-Submit Document  ◀── CHECK THIS!
+│                                         │
+│  When this state is reached, the        │
+│  document will be automatically         │
+│  submitted.                             │
+│                                         │
+│  ─── Or Select End Type ───             │
+│                                         │
+│  End Type: [Submit            ▼] ◀── OR SELECT THIS
+│            ┌─────────────────┐          │
+│            │ ○ Default       │          │
+│            │ ● Submit        │          │
+│            │ ○ Cancel        │          │
+│            │ ○ Reject        │          │
+│            └─────────────────┘          │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+**Step 3:** Save the workflow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    VISUAL FIX WALKTHROUGH                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   1. Click on your "Approved" or final End node                 │
+│                                                                  │
+│      ┌───────────┐                                              │
+│      │ Approved  │◎  ◀── Click to select                        │
+│      └───────────┘                                              │
+│                                                                  │
+│   2. Look at the Properties Panel on the right                  │
+│                                                                  │
+│      ┌─────────────────────┐                                    │
+│      │  PROPERTIES         │                                    │
+│      ├─────────────────────┤                                    │
+│      │                     │                                    │
+│      │  ☐ Auto-Submit      │  ◀── Check this box               │
+│      │                     │                                    │
+│      │  OR                 │                                    │
+│      │                     │                                    │
+│      │  Type: [Submit ▼]   │  ◀── Select "Submit"              │
+│      │                     │                                    │
+│      └─────────────────────┘                                    │
+│                                                                  │
+│   3. Click Save                                                  │
+│                                                                  │
+│      ┌──────────────────────────────────────────┐               │
+│      │  [Save] [▼]                              │               │
+│      └──────────────────────────────────────────┘               │
+│                                                                  │
+│   ✓ The error should now be resolved!                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Alternative: Use an "Approved" End Node from Toolbar**
+
+When adding nodes, the toolbar may have pre-configured end nodes:
+
+```
+┌─────────────────────────────────────────┐
+│  NODES PANEL                            │
+├─────────────────────────────────────────┤
+│                                         │
+│  ○ Start                                │
+│  □ State                                │
+│  ◇ Approval                             │
+│  ◆ Auto Action                          │
+│                                         │
+│  ─── End Nodes ───                      │
+│                                         │
+│  ◎ End (Default)                        │
+│  ◎ Approved End      ◀── Use this one! │
+│  ◎ Rejected End                         │
+│  ◎ Submit End                           │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+Dragging "Approved End" or "Submit End" automatically configures auto-submit.
+
+---
+
+### Fix via JSON (Alternative)
+
 **Option 1: Use Auto-Submit on Final State (Recommended)**
 
 Add `autoSubmit: true` to your approved/completed final state:
