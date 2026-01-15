@@ -110,7 +110,8 @@ export interface WorkflowEdgeData {
   event?: string;
   transitionType: XStateTransitionType;
   delay?: number;
-  delayUnit?: 'ms' | 'seconds' | 'minutes' | 'hours';
+  delayUnit?: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days';
+  businessHoursOnly?: boolean; // Only count working hours (Mon-Fri, 9 AM - 6 PM)
   guard?: GuardConfig;
   actions?: string[];
   description?: string;
@@ -309,10 +310,17 @@ export interface StartNodeData extends WorkflowNodeData {
 // Threshold Gate Node Data
 export interface ThresholdGateNodeData extends WorkflowNodeData {
   domainType: 'threshold_gate';
-  threshold: {
+  checkType?: 'field' | 'method';  // Default: 'field' for backward compatibility
+  // Field-based check (existing)
+  threshold?: {
     field: string;
     operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'ne';
     value: number;
+  };
+  // Method-based check (NEW)
+  methodCheck?: {
+    method: string;           // e.g., "check_credit_limit"
+    storeResultIn?: string;   // context key to store details
   };
   passTarget?: string;
   failTarget?: string;

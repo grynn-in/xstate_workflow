@@ -244,6 +244,8 @@ function calculateDelayMs(delay: number, unit?: string): number {
       return delay * 60 * 1000;
     case 'hours':
       return delay * 60 * 60 * 1000;
+    case 'days':
+      return delay * 24 * 60 * 60 * 1000;
     default: // 'ms' or undefined
       return delay;
   }
@@ -454,13 +456,24 @@ function buildThresholdGateConfig(
   allEdges: WorkflowEdge[]
 ): XStateStateConfig {
   const gateData = node.data as ThresholdGateNodeData;
+  const isMethodCheck = gateData.checkType === 'method';
+
+  // Build meta based on check type
+  const domainNodeMeta: Record<string, unknown> = {
+    type: 'threshold_gate',
+    checkType: gateData.checkType || 'field',
+    label: gateData.label,
+  };
+
+  if (isMethodCheck) {
+    domainNodeMeta.methodCheck = gateData.methodCheck;
+  } else {
+    domainNodeMeta.threshold = gateData.threshold;
+  }
+
   const config: XStateStateConfig = {
     meta: {
-      domain_node: {
-        type: 'threshold_gate',
-        threshold: gateData.threshold,
-        label: gateData.label,
-      },
+      domain_node: domainNodeMeta,
     },
     always: [],
   };
@@ -470,10 +483,17 @@ function buildThresholdGateConfig(
   const passEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'pass');
   const failEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'fail');
 
-  // Build threshold guard name
-  const guardName = gateData.threshold
-    ? `threshold_${gateData.threshold.field}_${gateData.threshold.operator}_${gateData.threshold.value}`
-    : 'threshold_check';
+  // Build guard name based on check type
+  let guardName: string;
+  if (isMethodCheck) {
+    guardName = gateData.methodCheck?.method
+      ? `method_check_${gateData.methodCheck.method}`
+      : 'method_check';
+  } else {
+    guardName = gateData.threshold
+      ? `threshold_${gateData.threshold.field}_${gateData.threshold.operator}_${gateData.threshold.value}`
+      : 'threshold_check';
+  }
 
   if (passEdge) {
     const passTarget = allNodes.find((n) => n.id === passEdge.target);

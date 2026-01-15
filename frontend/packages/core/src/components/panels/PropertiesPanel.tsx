@@ -363,8 +363,17 @@ function PropertiesPanelComponent({
                 <option value="seconds">sec</option>
                 <option value="minutes">min</option>
                 <option value="hours">hours</option>
+                <option value="days">days</option>
               </select>
             </div>
+            <label className="xsw-checkbox" style={{ marginTop: '8px' }} title="Only count working hours (Mon-Fri, 9 AM - 6 PM). Weekends and holidays are excluded from the delay calculation.">
+              <input
+                type="checkbox"
+                checked={selectedEdge.data.businessHoursOnly || false}
+                onChange={(e) => onEdgeChange?.(selectedEdge.id, { businessHoursOnly: e.target.checked })}
+              />
+              <span>Business hours only</span>
+            </label>
           </div>
         )}
 
