@@ -22,31 +22,31 @@ const XSTATE_PALETTE_ITEMS: PaletteItem[] = [
     type: 'atomic',
     label: 'State',
     icon: '○',
-    description: 'Simple state with no children',
+    description: 'A basic workflow state. Documents move between states via transitions. Click or drag to add.',
   },
   {
     type: 'compound',
     label: 'Compound',
     icon: '▣',
-    description: 'State containing nested states',
+    description: 'A parent state containing nested child states. Useful for grouping related states together.',
   },
   {
     type: 'parallel',
     label: 'Parallel',
     icon: '║',
-    description: 'Concurrent state regions',
+    description: 'Multiple state regions that run simultaneously. All regions are active at the same time.',
   },
   {
     type: 'history',
     label: 'History',
     icon: 'Ⓗ',
-    description: 'Remember last active state',
+    description: 'Remembers and returns to the previously active state. Use inside compound states.',
   },
   {
     type: 'final',
     label: 'Final',
     icon: '◉',
-    description: 'Terminal state',
+    description: 'An end state that marks the workflow as complete. No outgoing transitions allowed.',
   },
 ];
 
@@ -55,37 +55,37 @@ const DOMAIN_PALETTE_ITEMS: PaletteItem[] = [
     type: 'start',
     label: 'Start',
     icon: '▶',
-    description: 'Workflow entry point',
+    description: 'The entry point where all workflows begin. Every workflow needs exactly one Start node.',
   },
   {
     type: 'approval',
     label: 'Approval',
     icon: '👤',
-    description: 'Human approval step with assignee resolution',
+    description: 'A state requiring human approval. Creates tasks assigned to users/roles. Configure assignees in properties.',
   },
   {
     type: 'threshold_gate',
     label: 'Threshold Gate',
     icon: '◇',
-    description: 'Conditional branch based on numeric comparison',
+    description: 'Branch based on a numeric comparison (e.g., amount > 10000). Routes to different paths based on value.',
   },
   {
     type: 'classification_branch',
     label: 'Classification',
     icon: '⬡',
-    description: 'Multi-branch based on field value',
+    description: 'Branch based on a field value (e.g., type == "Urgent"). Creates multiple outgoing paths.',
   },
   {
     type: 'auto_action',
     label: 'Auto Action',
     icon: '⚡',
-    description: 'Automatic document action (submit, update, notify)',
+    description: 'Automatically executes actions: update fields, send emails, submit documents, call APIs.',
   },
   {
     type: 'end',
     label: 'End',
     icon: '⏹',
-    description: 'Workflow completion point',
+    description: 'The completion point of the workflow. Documents reaching this state are considered done.',
   },
 ];
 
@@ -127,12 +127,14 @@ function NodePaletteComponent({ mode: controlledMode, onModeChange, onAddNode }:
           <button
             className={`xsw-mode-btn ${mode === 'domain' ? 'active' : ''}`}
             onClick={() => handleModeChange('domain')}
+            title="High-level workflow nodes: Approvals, Auto Actions, Gates. Recommended for most users."
           >
             Domain
           </button>
           <button
             className={`xsw-mode-btn ${mode === 'xstate' ? 'active' : ''}`}
             onClick={() => handleModeChange('xstate')}
+            title="Low-level XState primitives: Atomic, Compound, Parallel, History, Final. For advanced users."
           >
             XState
           </button>

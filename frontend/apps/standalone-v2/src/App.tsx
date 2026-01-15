@@ -28,6 +28,7 @@ import {
   type WorkflowNode,
   type WorkflowEdge,
   type XStateNodeType,
+  type FrappeField,
 } from '@xstate-workflow/core-v2';
 import '@xstate-workflow/core/styles';
 import '@xstate-workflow/core-v2/styles';
@@ -37,6 +38,9 @@ import {
   loadMachine,
   showSuccess,
   showError,
+  getDocTypes,
+  getDocTypeFields,
+  getRoles,
 } from '@xstate-workflow/frappe-adapter';
 
 interface AppProps {
@@ -44,13 +48,19 @@ interface AppProps {
   attachedDoctype?: string;
 }
 
-export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) {
+export function App({ machineId: initialMachineId, attachedDoctype: initialAttachedDoctype }: AppProps) {
   const [machineId, setMachineId] = useState<string | undefined>(initialMachineId);
   const [machineTitle, setMachineTitle] = useState('New Workflow');
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+
+  // DocType and fields state
+  const [attachedDoctype, setAttachedDoctype] = useState<string | undefined>(initialAttachedDoctype);
+  const [doctypesList, setDoctypesList] = useState<string[]>([]);
+  const [doctypeFields, setDoctypeFields] = useState<FrappeField[]>([]);
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
 
   const {
     nodes,
@@ -144,6 +154,23 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
     },
     [onHelperLinesDragEnd]
   );
+
+  // Fetch doctypes list and roles on mount
+  useEffect(() => {
+    getDocTypes().then(setDoctypesList).catch(console.error);
+    getRoles().then(setAvailableRoles).catch(console.error);
+  }, []);
+
+  // Fetch doctype fields when attachedDoctype changes
+  useEffect(() => {
+    if (attachedDoctype) {
+      getDocTypeFields(attachedDoctype)
+        .then(setDoctypeFields)
+        .catch(console.error);
+    } else {
+      setDoctypeFields([]);
+    }
+  }, [attachedDoctype]);
 
   // Load existing machine
   useEffect(() => {
@@ -285,8 +312,11 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
       const config = getConfig();
       const xstate = workflowToXState(config);
 
+      // Generate a machine ID if this is a new workflow
+      const effectiveMachineId = machineId || `workflow_${Date.now()}`;
+
       const result = await saveMachine(
-        machineId || null,
+        effectiveMachineId,
         machineTitle,
         xstate,
         config,
@@ -303,6 +333,26 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
       setIsSaving(false);
     }
   }, [getConfig, machineId, machineTitle, attachedDoctype]);
+
+  // Handle delete selected
+  const handleDelete = useCallback(() => {
+    if (selectedNode) {
+      const nodeId = selectedNode.id;
+      setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+      setEdges((prev) =>
+        prev.filter((e) => e.source !== nodeId && e.target !== nodeId)
+      );
+      setSelectedNode(undefined);
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+    } else if (selectedEdge) {
+      const edgeId = selectedEdge.id;
+      setEdges((prev) => prev.filter((e) => e.id !== edgeId));
+      setSelectedEdge(undefined);
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+    }
+  }, [selectedNode, selectedEdge, setNodes, setEdges, setSelectedNode, setSelectedEdge, takeSnapshot]);
 
   // Handle add node from palette (click)
   const handleAddNode = useCallback(
@@ -368,9 +418,20 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
                 setHasUnsavedChanges(true);
               }}
             />
-            {attachedDoctype && (
-              <span className="xsw-toolbar-doctype">{attachedDoctype}</span>
-            )}
+            <select
+              className="xsw-select"
+              value={attachedDoctype || ''}
+              onChange={(e) => {
+                setAttachedDoctype(e.target.value || undefined);
+                setHasUnsavedChanges(true);
+              }}
+              style={{ width: '180px' }}
+            >
+              <option value="">Select DocType...</option>
+              {doctypesList.map((dt) => (
+                <option key={dt} value={dt}>{dt}</option>
+              ))}
+            </select>
             {hasUnsavedChanges && (
               <span style={{ color: '#f59e0b', fontSize: '12px' }}>&#x25CF; Unsaved</span>
             )}
@@ -410,6 +471,16 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
                 &#x21B7;
               </button>
             </div>
+            {/* Delete button */}
+            <button
+              className="xsw-button xsw-button-secondary"
+              onClick={handleDelete}
+              disabled={!selectedNode && !selectedEdge}
+              title="Delete selected (Delete)"
+              style={{ padding: '4px 8px', minWidth: 'auto', marginRight: '8px' }}
+            >
+              &#x1F5D1;
+            </button>
             <button
               className="xsw-button xsw-button-secondary"
               onClick={handleExport}
@@ -473,6 +544,8 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
           selectedEdge={selectedEdge}
           onNodeChange={updateNode}
           onEdgeChange={updateEdge}
+          doctypeFields={doctypeFields}
+          availableRoles={availableRoles}
         />
       </div>
     </div>

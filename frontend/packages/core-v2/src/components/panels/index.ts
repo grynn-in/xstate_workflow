@@ -1,2 +1,4 @@
 // V2 panel component exports
-// Enhanced panels (timeline, debug) will be added here
+
+export { ExecutionTimeline } from './ExecutionTimeline';
+export type { ExecutionTimelineProps } from './ExecutionTimeline';

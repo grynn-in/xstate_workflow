@@ -130,18 +130,23 @@ export async function getDocTypes(): Promise<string[]> {
     throw new Error('Frappe not available');
   }
 
-  const response = await frappe.xcall<{ message: Array<{ name: string }> }>(
-    'frappe.client.get_list',
-    {
-      doctype: 'DocType',
-      filters: { istable: 0, issingle: 0 },
-      fields: ['name'],
-      order_by: 'name asc',
-      limit_page_length: 0,
-    }
-  );
+  try {
+    const response = await frappe.xcall<Array<{ name: string }>>(
+      'frappe.client.get_list',
+      {
+        doctype: 'DocType',
+        filters: { istable: 0, issingle: 0 },
+        fields: ['name'],
+        order_by: 'name asc',
+        limit_page_length: 0,
+      }
+    );
 
-  return (response.message || []).map((d) => d.name);
+    return (response || []).map((d) => d.name);
+  } catch (err) {
+    console.error('Failed to get DocTypes:', err);
+    return [];
+  }
 }
 
 /**

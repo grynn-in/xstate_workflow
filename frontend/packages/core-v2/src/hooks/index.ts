@@ -39,6 +39,13 @@ export type {
   VerticalLine,
 } from './useHelperLines';
 
+export { useExecutionTimeline } from './useExecutionTimeline';
+export type {
+  UseExecutionTimelineOptions,
+  UseExecutionTimelineReturn,
+  TimelineEntry,
+} from './useExecutionTimeline';
+
 // Hooks to be added:
 // - useDebugMode
 // - useKeyboardShortcuts
