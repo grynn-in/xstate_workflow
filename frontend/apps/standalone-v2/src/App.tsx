@@ -44,7 +44,9 @@ import {
   getDocTypeFields,
   getRoles,
   getUsers,
+  getMcpConnections,
   type MachineListItem,
+  type MCPConnectionInfo,
 } from '@xstate-workflow/frappe-adapter';
 
 interface AppProps {
@@ -66,6 +68,8 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
   const [doctypeFields, setDoctypeFields] = useState<FrappeField[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
   const [availableUsers, setAvailableUsers] = useState<Array<{ name: string; full_name: string }>>([]);
+  const [availableMcpConnections, setAvailableMcpConnections] = useState<MCPConnectionInfo[]>([]);
+  const [availableContextVars, setAvailableContextVars] = useState<string[]>([]);
 
   // Workflow list for selector
   const [workflowsList, setWorkflowsList] = useState<MachineListItem[]>([]);
@@ -163,11 +167,12 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     [onHelperLinesDragEnd]
   );
 
-  // Fetch doctypes list, roles, users, and workflows on mount
+  // Fetch doctypes list, roles, users, MCP connections, and workflows on mount
   useEffect(() => {
     getDocTypes().then(setDoctypesList).catch(console.error);
     getRoles().then(setAvailableRoles).catch(console.error);
     getUsers().then(setAvailableUsers).catch(console.error);
+    getMcpConnections().then(setAvailableMcpConnections).catch(console.error);
     listMachines(undefined, true).then(setWorkflowsList).catch(console.error);
   }, []);
 
@@ -211,6 +216,11 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
             console.log('Converted config:', JSON.stringify(config, null, 2));
             console.log('Nodes:', config.nodes.map(n => ({ id: n.id, type: n.type, label: n.data?.label })));
             loadConfig(config);
+
+            // Extract context variables from config
+            if (config.context) {
+              setAvailableContextVars(Object.keys(config.context));
+            }
           }
 
           setHasUnsavedChanges(false);
@@ -382,6 +392,11 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
         }
         const config = xstateToWorkflow(xstate, existingLayout);
         loadConfig(config);
+
+        // Extract context variables from config
+        if (config.context) {
+          setAvailableContextVars(Object.keys(config.context));
+        }
       } else {
         loadConfig({ nodes: [], edges: [] });
       }
@@ -637,6 +652,8 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
             availableRoles={availableRoles}
             availableDoctypes={doctypesList}
             availableUsers={availableUsers}
+            availableMcpConnections={availableMcpConnections}
+            availableContextVars={availableContextVars}
             onFetchDoctypeFields={getDocTypeFields}
           />
         </ResizablePanel>
