@@ -14,6 +14,8 @@ export type DomainNodeType =
   | 'approval'
   | 'parallel_approval'
   | 'auto_action'
+  | 'agentic'
+  | 'rest_fetch'
   | 'end';
 
 export type HistoryType = 'shallow' | 'deep';
@@ -423,6 +425,119 @@ export interface EndNodeData extends WorkflowNodeData {
   finalStatus?: string;
 }
 
+// =============================================================================
+// AGENTIC NODE TYPES
+// =============================================================================
+
+// Tool configuration for agentic nodes
+export interface ToolConfig {
+  name: string;
+  enabled: boolean;
+}
+
+// Allowed method configuration with role-based access
+export interface AllowedMethod {
+  method: string;
+  allowed_roles?: string[];
+}
+
+// Decision route for decision-based transitions
+export interface DecisionRoute {
+  condition: string;
+}
+
+// Custom agent event for custom_events transition mode
+export interface CustomAgentEvent {
+  name: string;
+  description?: string;
+}
+
+// Data input configuration for pre-loading data
+export interface DataInputConfig {
+  // Which fields from current document
+  documentFields?: string[];
+  // Linked documents to fetch
+  linkedDocuments?: LinkedDocumentConfig[];
+  // Context variables from workflow
+  contextVariables?: string[];
+}
+
+// Linked document configuration
+export interface LinkedDocumentConfig {
+  linkField: string;
+  fields: string[];
+}
+
+// MCP server selection for agentic nodes
+export interface MCPServerConfig {
+  connectionName: string;
+  enabled: boolean;
+}
+
+// REST endpoint configuration for agentic nodes
+export interface RestEndpointConfig {
+  name: string;
+  url: string;
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  authType: 'none' | 'api_key' | 'basic' | 'bearer';
+  authCredential?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  description: string;
+  timeout?: number;
+}
+
+// Agentic Node Data
+export interface AgenticNodeData extends WorkflowNodeData {
+  domainType: 'agentic';
+  // Agent configuration
+  agentType?: 'react' | 'tool_executor' | 'plan_execute' | 'custom';
+  systemPrompt?: string;
+  model?: string;
+  // Tools
+  enabledTools?: ToolConfig[];
+  frappeAccess?: 'none' | 'read_only' | 'full_crud';
+  allowedMethods?: AllowedMethod[];
+  // Data input configuration
+  dataInput?: DataInputConfig;
+  // MCP server connections
+  enabledMcps?: MCPServerConfig[];
+  // REST endpoint tools
+  restEndpoints?: RestEndpointConfig[];
+  // Transition configuration
+  transitionMode?: 'simple' | 'decision' | 'custom_events' | 'all';
+  decisionRoutes?: DecisionRoute[];
+  customEvents?: CustomAgentEvent[];
+  // Execution settings
+  maxIterations?: number;
+  timeoutSeconds?: number;
+  retryOnFailure?: boolean;
+  maxRetries?: number;
+}
+
+// =============================================================================
+// REST FETCH NODE TYPES
+// =============================================================================
+
+// REST Fetch Node Data - fetches data before transitioning
+export interface RestFetchNodeData extends WorkflowNodeData {
+  domainType: 'rest_fetch';
+  // Request configuration
+  url: string;
+  method: 'GET' | 'POST' | 'PUT';
+  authType: 'none' | 'api_key' | 'basic' | 'bearer';
+  authCredential?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  // Response handling
+  saveResponseTo: string;  // Context variable name
+  // Transitions
+  onSuccess: string;       // Event to trigger on success
+  onError: string;         // Event to trigger on error
+  // Timeout
+  timeoutSeconds?: number;
+}
+
 // Union type for all domain node data
 export type DomainNodeData =
   | StartNodeData
@@ -431,6 +546,8 @@ export type DomainNodeData =
   | ApprovalNodeData
   | ParallelApprovalNodeData
   | AutoActionNodeData
+  | AgenticNodeData
+  | RestFetchNodeData
   | EndNodeData;
 
 // Domain node colors
@@ -441,5 +558,7 @@ export const DOMAIN_NODE_COLORS: Record<DomainNodeType, string> = {
   approval: '#3b82f6',
   parallel_approval: '#6366f1',  // Indigo for parallel approval
   auto_action: '#06b6d4',
+  agentic: '#ec4899',           // Pink for AI agent
+  rest_fetch: '#14b8a6',        // Teal for REST fetch
   end: '#ef4444',
 } as const;

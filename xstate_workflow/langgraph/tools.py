@@ -108,6 +108,8 @@ class ToolRegistry:
 	- Role-based access control for specific methods
 	- Rate limiting per tool
 	- Audit logging
+	- MCP server tool integration
+	- REST endpoint tool support
 	"""
 
 	# Default rate limits per tool (calls per minute)
@@ -119,6 +121,7 @@ class ToolRegistry:
 		"web_search": 10,
 		"calculator": 100,
 		"code_executor": 10,
+		"rest_endpoint": 30,
 	}
 
 	def __init__(
@@ -129,6 +132,9 @@ class ToolRegistry:
 		doctype: str,
 		docname: str,
 		rate_limits: dict = None,
+		enabled_mcps: list = None,
+		rest_endpoints: list = None,
+		context: dict = None,
 	):
 		"""
 		Initialize the tool registry.
@@ -140,6 +146,9 @@ class ToolRegistry:
 			doctype: Document DocType
 			docname: Document name
 			rate_limits: Optional custom rate limits per tool
+			enabled_mcps: List of enabled MCP server configs [{"connection_name": "...", "enabled": True}]
+			rest_endpoints: List of REST endpoint configs for tool creation
+			context: Workflow context for variable substitution
 		"""
 		self.frappe_access = frappe_access
 		self.allowed_methods = allowed_methods or []
@@ -148,6 +157,9 @@ class ToolRegistry:
 		self.docname = docname
 		self.current_user = frappe.session.user
 		self.user_roles = frappe.get_roles(self.current_user)
+		self.enabled_mcps = enabled_mcps or []
+		self.rest_endpoints = rest_endpoints or []
+		self.context = context or {}
 
 		# Initialize rate limiters for each tool
 		self.rate_limits = {**self.DEFAULT_RATE_LIMITS, **(rate_limits or {})}
@@ -233,6 +245,7 @@ class ToolRegistry:
 		"""
 		tools = []
 
+		# Standard Frappe tools
 		for tool_config in enabled_tools:
 			if not tool_config.get("enabled"):
 				continue
@@ -260,7 +273,193 @@ class ToolRegistry:
 			elif tool_name == "code_executor":
 				tools.append(self._create_code_executor_tool())
 
+		# MCP tools from enabled MCP servers
+		mcp_tools = self._get_mcp_tools()
+		tools.extend(mcp_tools)
+
+		# REST endpoint tools
+		rest_tools = self._create_rest_tools()
+		tools.extend(rest_tools)
+
 		return tools
+
+	def _get_mcp_tools(self) -> list:
+		"""
+		Get tools from enabled MCP servers.
+
+		Returns:
+			List of LangChain tools from MCP servers
+		"""
+		if not self.enabled_mcps:
+			return []
+
+		try:
+			from xstate_workflow.langgraph.mcp_client import get_tools_from_mcps
+
+			return get_tools_from_mcps(
+				enabled_mcps=self.enabled_mcps,
+				doctype=self.doctype,
+				docname=self.docname,
+				user=self.current_user,
+			)
+		except Exception as e:
+			frappe.log_error(
+				title="MCP Tools Error",
+				message=f"Failed to load MCP tools: {e}",
+			)
+			return []
+
+	def _create_rest_tools(self) -> list:
+		"""
+		Create tools from configured REST endpoints.
+
+		Returns:
+			List of LangChain tools for REST endpoints
+		"""
+		if not self.rest_endpoints:
+			return []
+
+		tools = []
+		for endpoint in self.rest_endpoints:
+			if not endpoint.get("name"):
+				continue
+
+			tool = self._create_rest_tool(endpoint)
+			if tool:
+				tools.append(tool)
+
+		return tools
+
+	def _create_rest_tool(self, config: dict):
+		"""
+		Create a LangChain tool for a REST endpoint.
+
+		Args:
+			config: REST endpoint configuration with name, url, method, etc.
+
+		Returns:
+			LangChain tool or None
+		"""
+		try:
+			from langchain_core.tools import tool
+		except ImportError:
+			return None
+
+		import time
+
+		import requests
+
+		# Capture for closure
+		endpoint_name = config.get("name")
+		endpoint_url = config.get("url", "")
+		endpoint_method = config.get("method", "GET").upper()
+		endpoint_auth_type = config.get("authType", "none")
+		endpoint_auth_credential = config.get("authCredential", "")
+		endpoint_headers = config.get("headers", {})
+		endpoint_body = config.get("body")
+		endpoint_description = config.get("description", f"REST endpoint: {endpoint_name}")
+		endpoint_timeout = config.get("timeout", 30)
+
+		doc_data = self.doc
+		context_data = self.context
+		doctype = self.doctype
+		docname = self.docname
+		registry = self
+
+		@tool
+		def rest_endpoint_call(**params) -> dict:
+			f"""Call REST endpoint: {endpoint_name}
+
+			{endpoint_description}
+
+			Args:
+				params: Optional parameters for URL/body substitution
+
+			Returns:
+				REST API response or error
+			"""
+			start_time = time.time()
+
+			# Check rate limit
+			allowed, error_msg = registry._check_rate_limit("rest_endpoint")
+			if not allowed:
+				return {"error": error_msg}
+
+			try:
+				# Substitute {{field}} in URL
+				url = _substitute_template(endpoint_url, doc_data, context_data, params)
+
+				# Build headers
+				headers = {"Content-Type": "application/json", "Accept": "application/json"}
+				headers.update(endpoint_headers or {})
+
+				# Add authentication
+				headers = _add_rest_auth(
+					headers, endpoint_auth_type, endpoint_auth_credential
+				)
+
+				# Substitute {{field}} in body for POST/PUT
+				body = None
+				if endpoint_body and endpoint_method in ("POST", "PUT", "PATCH"):
+					body_str = _substitute_template(endpoint_body, doc_data, context_data, params)
+					try:
+						import json
+						body = json.loads(body_str)
+					except (json.JSONDecodeError, TypeError):
+						body = body_str
+
+				# Make request
+				response = requests.request(
+					method=endpoint_method,
+					url=url,
+					headers=headers,
+					json=body if isinstance(body, dict) else None,
+					data=body if isinstance(body, str) else None,
+					timeout=endpoint_timeout,
+				)
+
+				duration_ms = (time.time() - start_time) * 1000
+
+				# Log the call
+				log_tool_call(
+					tool_name=f"rest:{endpoint_name}",
+					doctype=doctype,
+					docname=docname,
+					args={"url": url, "method": endpoint_method},
+					result=f"Status: {response.status_code}",
+					duration_ms=duration_ms,
+					success=response.ok,
+				)
+
+				# Return response
+				if response.ok:
+					try:
+						return response.json()
+					except ValueError:
+						return {
+							"status": response.status_code,
+							"content_type": response.headers.get("Content-Type", ""),
+							"text": response.text[:1000],
+						}
+				else:
+					return {
+						"error": f"HTTP {response.status_code}",
+						"status": response.status_code,
+						"body": response.text[:500],
+					}
+
+			except requests.exceptions.Timeout:
+				return {"error": f"Request timed out after {endpoint_timeout}s"}
+			except requests.exceptions.ConnectionError as e:
+				return {"error": f"Connection error: {e}"}
+			except Exception as e:
+				return {"error": str(e)}
+
+		# Set the tool name dynamically
+		rest_endpoint_call.__name__ = f"rest_{endpoint_name}"
+		rest_endpoint_call.__doc__ = endpoint_description
+
+		return rest_endpoint_call
 
 	def _create_frappe_read_tool(self):
 		"""Create tool for reading Frappe documents."""
@@ -710,6 +909,9 @@ def get_frappe_tools(
 	doctype: str,
 	docname: str,
 	enabled_tools: list,
+	enabled_mcps: list = None,
+	rest_endpoints: list = None,
+	context: dict = None,
 ) -> list:
 	"""
 	Convenience function to get Frappe tools.
@@ -721,6 +923,9 @@ def get_frappe_tools(
 		doctype: DocType name
 		docname: Document name
 		enabled_tools: List of enabled tool configurations
+		enabled_mcps: List of enabled MCP server configurations
+		rest_endpoints: List of REST endpoint configurations
+		context: Workflow context for variable substitution
 
 	Returns:
 		List of LangChain tool instances
@@ -731,5 +936,131 @@ def get_frappe_tools(
 		doc=doc,
 		doctype=doctype,
 		docname=docname,
+		enabled_mcps=enabled_mcps,
+		rest_endpoints=rest_endpoints,
+		context=context,
 	)
 	return registry.get_tools(enabled_tools)
+
+
+def _substitute_template(template: str, doc: dict, context: dict, params: dict = None) -> str:
+	"""
+	Substitute {{field}} patterns in a template string.
+
+	Supports:
+	- {{field}} - document field
+	- {{doc.field}} - explicit document field
+	- {{context.field}} - context variable
+	- {{param.field}} - parameter from tool call
+
+	Args:
+		template: Template string with {{field}} patterns
+		doc: Document data
+		context: Workflow context
+		params: Optional additional parameters
+
+	Returns:
+		Template with substituted values
+	"""
+	import re
+
+	if not template:
+		return template
+
+	params = params or {}
+
+	def replace_match(match):
+		key = match.group(1).strip()
+
+		# Check explicit prefixes
+		if key.startswith("doc."):
+			field = key[4:]
+			return str(doc.get(field, ""))
+		elif key.startswith("context."):
+			field = key[8:]
+			return str(context.get(field, ""))
+		elif key.startswith("param."):
+			field = key[6:]
+			return str(params.get(field, ""))
+
+		# Default: try params first, then doc, then context
+		if key in params:
+			return str(params[key])
+		elif key in doc:
+			return str(doc[key])
+		elif key in context:
+			return str(context[key])
+
+		# Return empty string for missing values
+		return ""
+
+	# Match {{field}} pattern
+	pattern = r"\{\{([^}]+)\}\}"
+	return re.sub(pattern, replace_match, template)
+
+
+def _add_rest_auth(headers: dict, auth_type: str, auth_credential: str) -> dict:
+	"""
+	Add authentication to REST headers.
+
+	Args:
+		headers: Existing headers dict
+		auth_type: Authentication type (none, api_key, basic, bearer)
+		auth_credential: Credential value or reference
+
+	Returns:
+		Headers dict with auth added
+	"""
+	import base64
+
+	if auth_type == "none" or not auth_credential:
+		return headers
+
+	# Get actual credential value - could be a reference to a stored credential
+	credential_value = _resolve_credential(auth_credential)
+
+	if auth_type == "api_key":
+		headers["X-API-Key"] = credential_value
+
+	elif auth_type == "bearer":
+		headers["Authorization"] = f"Bearer {credential_value}"
+
+	elif auth_type == "basic":
+		# Expect format "username:password"
+		encoded = base64.b64encode(credential_value.encode()).decode()
+		headers["Authorization"] = f"Basic {encoded}"
+
+	return headers
+
+
+def _resolve_credential(credential_ref: str) -> str:
+	"""
+	Resolve a credential reference to its actual value.
+
+	Supports:
+	- Direct values
+	- References to site_config.json values (format: "config:key_name")
+	- References to secrets (format: "secret:secret_name")
+
+	Args:
+		credential_ref: Credential reference string
+
+	Returns:
+		Resolved credential value
+	"""
+	if not credential_ref:
+		return ""
+
+	# Check if it's a config reference
+	if credential_ref.startswith("config:"):
+		key = credential_ref[7:]
+		return frappe.conf.get(key, "")
+
+	# Check if it's a secrets reference
+	if credential_ref.startswith("secret:"):
+		# Could integrate with a secrets manager in the future
+		key = credential_ref[7:]
+		return frappe.conf.get(f"secret_{key}", "")
+
+	# Direct value
+	return credential_ref

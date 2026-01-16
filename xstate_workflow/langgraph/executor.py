@@ -131,6 +131,9 @@ class AgentExecutor:
 		allowed_methods: list,
 		max_iterations: int,
 		timeout_seconds: int,
+		data_input: dict | None = None,
+		enabled_mcps: list | None = None,
+		rest_endpoints: list | None = None,
 	):
 		self.agent_type = agent_type
 		self.system_prompt = system_prompt
@@ -140,6 +143,9 @@ class AgentExecutor:
 		self.allowed_methods = allowed_methods
 		self.max_iterations = max_iterations
 		self.timeout_seconds = timeout_seconds
+		self.data_input = data_input
+		self.enabled_mcps = enabled_mcps or []
+		self.rest_endpoints = rest_endpoints or []
 
 	def to_dict(self) -> dict:
 		"""Serialize executor configuration for background job."""
@@ -152,6 +158,9 @@ class AgentExecutor:
 			"allowed_methods": self.allowed_methods,
 			"max_iterations": self.max_iterations,
 			"timeout_seconds": self.timeout_seconds,
+			"data_input": self.data_input,
+			"enabled_mcps": self.enabled_mcps,
+			"rest_endpoints": self.rest_endpoints,
 		}
 
 	@classmethod
@@ -166,6 +175,9 @@ class AgentExecutor:
 			allowed_methods=data.get("allowed_methods", []),
 			max_iterations=data.get("max_iterations", 10),
 			timeout_seconds=data.get("timeout_seconds", 300),
+			data_input=data.get("data_input"),
+			enabled_mcps=data.get("enabled_mcps", []),
+			rest_endpoints=data.get("rest_endpoints", []),
 		)
 
 
@@ -322,6 +334,7 @@ def run_agent(
 	custom_events: list,
 	retry_config: dict = None,
 	attempt: int = 0,
+	context: dict = None,
 ) -> None:
 	"""
 	Background job to run LangGraph agent.
@@ -340,10 +353,12 @@ def run_agent(
 		custom_events: List of custom event configurations
 		retry_config: Retry configuration (retry_on_failure, max_retries)
 		attempt: Current attempt number (0-based)
+		context: Workflow context for variable substitution and data resolution
 	"""
 	retry_config = retry_config or {}
 	retry_on_failure = retry_config.get("retry_on_failure", False)
 	max_retries = retry_config.get("max_retries", 3)
+	context = context or {}
 
 	try:
 		from langgraph.prebuilt import create_react_agent
@@ -367,19 +382,39 @@ def run_agent(
 			_schedule_retry(
 				executor_config, doc, doctype, docname, state_name,
 				transition_mode, decision_routes, custom_events,
-				retry_config, attempt
+				retry_config, attempt, context
 			)
 		else:
 			_trigger_failure_event(doctype, docname, str(e))
 		return
 
-	# Build tools with role-based access control
+	# Resolve data input configuration
+	resolved_data = None
+	if executor.data_input:
+		try:
+			from xstate_workflow.langgraph.data_input import resolve_data_input
+
+			resolved_data = resolve_data_input(
+				config=executor.data_input,
+				ref_doc=doc,
+				context=context,
+				doctype=doctype,
+				docname=docname,
+			)
+		except Exception as e:
+			frappe.log_error(f"Failed to resolve data input: {e}", "Agentic Node Warning")
+			# Continue with full document if data resolution fails
+
+	# Build tools with role-based access control, MCP support, and REST endpoints
 	tool_registry = ToolRegistry(
 		frappe_access=executor.frappe_access,
 		allowed_methods=executor.allowed_methods,
 		doc=doc,
 		doctype=doctype,
 		docname=docname,
+		enabled_mcps=executor.enabled_mcps,
+		rest_endpoints=executor.rest_endpoints,
+		context=context,
 	)
 	tools = tool_registry.get_tools(executor.enabled_tools)
 
@@ -412,12 +447,18 @@ def run_agent(
 	if attempt > 0:
 		checkpoint = _load_agent_checkpoint(doctype, docname, state_name)
 
-	# Prepare input
-	doc_summary = _format_doc_for_agent(doc, doctype, docname)
+	# Prepare input - use resolved data if available, otherwise full document
+	if resolved_data:
+		from xstate_workflow.langgraph.data_input import format_data_for_agent
+
+		data_summary = format_data_for_agent(resolved_data)
+	else:
+		data_summary = _format_doc_for_agent(doc, doctype, docname)
+
 	input_data = {
 		"messages": [
 			("system", executor.system_prompt),
-			("human", f"Process document {doctype}/{docname}.\n\nDocument data:\n{doc_summary}"),
+			("human", f"Process document {doctype}/{docname}.\n\n{data_summary}"),
 		]
 	}
 
@@ -462,7 +503,7 @@ def run_agent(
 			_schedule_retry(
 				executor_config, doc, doctype, docname, state_name,
 				transition_mode, decision_routes, custom_events,
-				retry_config, attempt
+				retry_config, attempt, context
 			)
 		else:
 			_trigger_failure_event(doctype, docname, str(e))
@@ -479,6 +520,7 @@ def _schedule_retry(
 	custom_events: list,
 	retry_config: dict,
 	attempt: int,
+	context: dict = None,
 ) -> None:
 	"""Schedule a retry with exponential backoff."""
 	next_attempt = attempt + 1
@@ -508,6 +550,7 @@ def _schedule_retry(
 		custom_events=custom_events,
 		retry_config=retry_config,
 		attempt=next_attempt,
+		context=context,
 		job_id=f"agent_retry_{doctype}_{docname}_{next_attempt}",
 	)
 

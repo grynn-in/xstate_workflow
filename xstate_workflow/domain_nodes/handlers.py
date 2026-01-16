@@ -75,6 +75,11 @@ def get_domain_node_actions(machine_doc, ref_doc, instance) -> dict:
         "start_agent": lambda ctx, evt: _start_agent_action(
             ctx, evt, ref_doc, instance
         ),
+
+        # REST Fetch node actions
+        "rest_fetch": lambda ctx, evt: _rest_fetch_action(
+            ctx, evt, ref_doc, instance
+        ),
     }
 
 
@@ -586,27 +591,31 @@ def handle_agentic_node_entry(
         # Not an agentic node, skip
         return context
 
-    # Build executor configuration
+    # Build executor configuration with all new fields
     executor = AgentExecutor(
-        agent_type=domain_node.get("agent_type", "react"),
-        system_prompt=domain_node.get("system_prompt", ""),
+        agent_type=domain_node.get("agent_type") or domain_node.get("agentType", "react"),
+        system_prompt=domain_node.get("system_prompt") or domain_node.get("systemPrompt", ""),
         model=domain_node.get("model"),
-        enabled_tools=domain_node.get("enabled_tools", []),
-        frappe_access=domain_node.get("frappe_access", "none"),
-        allowed_methods=domain_node.get("allowed_methods", []),
-        max_iterations=domain_node.get("max_iterations", 10),
-        timeout_seconds=domain_node.get("timeout_seconds", 300),
+        enabled_tools=domain_node.get("enabled_tools") or domain_node.get("enabledTools", []),
+        frappe_access=domain_node.get("frappe_access") or domain_node.get("frappeAccess", "none"),
+        allowed_methods=domain_node.get("allowed_methods") or domain_node.get("allowedMethods", []),
+        max_iterations=domain_node.get("max_iterations") or domain_node.get("maxIterations", 10),
+        timeout_seconds=domain_node.get("timeout_seconds") or domain_node.get("timeoutSeconds", 300),
+        # New fields for MCP and REST support
+        data_input=domain_node.get("data_input") or domain_node.get("dataInput"),
+        enabled_mcps=domain_node.get("enabled_mcps") or domain_node.get("enabledMcps", []),
+        rest_endpoints=domain_node.get("rest_endpoints") or domain_node.get("restEndpoints", []),
     )
 
-    # Get transition configuration
-    transition_mode = domain_node.get("transition_mode", "simple")
-    decision_routes = domain_node.get("decision_routes", [])
-    custom_events = domain_node.get("custom_events", [])
+    # Get transition configuration (support both snake_case and camelCase)
+    transition_mode = domain_node.get("transition_mode") or domain_node.get("transitionMode", "simple")
+    decision_routes = domain_node.get("decision_routes") or domain_node.get("decisionRoutes", [])
+    custom_events = domain_node.get("custom_events") or domain_node.get("customEvents", [])
 
     # Get retry configuration
     retry_config = {
-        "retry_on_failure": domain_node.get("retry_on_failure", False),
-        "max_retries": domain_node.get("max_retries", 3),
+        "retry_on_failure": domain_node.get("retry_on_failure") or domain_node.get("retryOnFailure", False),
+        "max_retries": domain_node.get("max_retries") or domain_node.get("maxRetries", 3),
     }
 
     # Get document data
@@ -616,7 +625,8 @@ def handle_agentic_node_entry(
     state_name = node_config.get("id") or context.get("_current_state", "")
 
     # Calculate timeout with buffer
-    timeout = domain_node.get("timeout_seconds", 300) + 60
+    timeout_seconds = domain_node.get("timeout_seconds") or domain_node.get("timeoutSeconds", 300)
+    timeout = timeout_seconds + 60
 
     # Enqueue agent execution as background job
     frappe.enqueue(
@@ -633,6 +643,7 @@ def handle_agentic_node_entry(
         custom_events=custom_events,
         retry_config=retry_config,
         attempt=0,
+        context=context,  # Pass workflow context for data resolution
     )
 
     # Mark in context that agent is running
@@ -649,6 +660,130 @@ def handle_agentic_node_entry(
 def _start_agent_action(context: dict, event: dict, ref_doc, instance) -> dict:
     """Start agent action - delegates to handle_agentic_node_entry."""
     handle_agentic_node_entry(
+        node_config=event.get("node_config", {}),
+        context=context,
+        event=event,
+        ref_doc=ref_doc,
+        instance=instance
+    )
+    return context
+
+
+# REST Fetch Node Handlers
+
+def handle_rest_fetch_node_entry(
+    node_config: dict,
+    context: dict,
+    event: dict,
+    ref_doc: "Document",
+    instance: "Document"
+) -> dict:
+    """
+    Handle REST Fetch node - fetches data from REST API and stores in context.
+
+    Args:
+        node_config: The REST fetch node configuration
+        context: Current workflow context
+        event: Triggering event
+        ref_doc: Reference document
+        instance: Machine Instance
+
+    Returns:
+        Updated context with _trigger_event set for automatic transition
+    """
+    import requests
+
+    # Extract REST fetch node configuration from meta
+    meta = node_config.get("meta", {})
+    domain_node = meta.get("domain_node", {})
+
+    if not domain_node or domain_node.get("type") not in ("rest_fetch", "restFetch"):
+        return context
+
+    # Get configuration (support both snake_case and camelCase)
+    url = domain_node.get("url", "")
+    method = domain_node.get("method", "GET").upper()
+    auth_type = domain_node.get("auth_type") or domain_node.get("authType", "none")
+    auth_credential = domain_node.get("auth_credential") or domain_node.get("authCredential", "")
+    headers = domain_node.get("headers", {})
+    body = domain_node.get("body")
+    save_response_to = domain_node.get("save_response_to") or domain_node.get("saveResponseTo", "_rest_response")
+    on_success = domain_node.get("on_success") or domain_node.get("onSuccess", "REST_SUCCESS")
+    on_error = domain_node.get("on_error") or domain_node.get("onError", "REST_ERROR")
+    timeout_seconds = domain_node.get("timeout_seconds") or domain_node.get("timeoutSeconds", 30)
+
+    # Substitute template variables in URL
+    url = _substitute_template(url, context, ref_doc)
+
+    # Build headers
+    request_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    request_headers.update(headers or {})
+
+    # Add authentication
+    if auth_type != "none" and auth_credential:
+        from xstate_workflow.langgraph.tools import _add_rest_auth, _resolve_credential
+        request_headers = _add_rest_auth(request_headers, auth_type, auth_credential)
+
+    # Substitute template variables in body
+    request_body = None
+    if body and method in ("POST", "PUT", "PATCH"):
+        body_str = _substitute_template(body, context, ref_doc)
+        try:
+            request_body = json.loads(body_str)
+        except (json.JSONDecodeError, TypeError):
+            request_body = body_str
+
+    try:
+        # Make request
+        response = requests.request(
+            method=method,
+            url=url,
+            headers=request_headers,
+            json=request_body if isinstance(request_body, dict) else None,
+            data=request_body if isinstance(request_body, str) else None,
+            timeout=timeout_seconds,
+        )
+
+        response.raise_for_status()
+
+        # Store response in context
+        try:
+            context[save_response_to] = response.json()
+        except ValueError:
+            context[save_response_to] = {
+                "status": response.status_code,
+                "content_type": response.headers.get("Content-Type", ""),
+                "text": response.text[:5000],
+            }
+
+        context["_rest_fetch_success"] = True
+        context["_trigger_event"] = on_success
+
+    except requests.exceptions.Timeout:
+        context["_rest_fetch_error"] = f"Request timed out after {timeout_seconds}s"
+        context["_rest_fetch_success"] = False
+        context["_trigger_event"] = on_error
+
+    except requests.exceptions.HTTPError as e:
+        context["_rest_fetch_error"] = f"HTTP error: {e.response.status_code}"
+        context["_rest_fetch_success"] = False
+        context["_trigger_event"] = on_error
+
+    except Exception as e:
+        context["_rest_fetch_error"] = str(e)
+        context["_rest_fetch_success"] = False
+        context["_trigger_event"] = on_error
+        frappe.log_error(f"REST Fetch failed: {e}", "REST Fetch Node")
+
+    return context
+
+
+def _rest_fetch_action(context: dict, event: dict, ref_doc, instance) -> dict:
+    """REST fetch action - delegates to handle_rest_fetch_node_entry."""
+    handle_rest_fetch_node_entry(
         node_config=event.get("node_config", {}),
         context=context,
         event=event,
