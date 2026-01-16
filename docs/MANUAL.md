@@ -39,6 +39,7 @@ A comprehensive guide to setting up and using XState Workflow for Frappe Framewo
   - [6.3 Delayed Transitions](#63-delayed-transitions)
   - [6.4 Auto-Submission](#64-auto-submission)
   - [6.5 Multi-Tenant Support](#65-multi-tenant-support)
+  - [6.6 Agentic Nodes (AI Agents)](#66-agentic-nodes-ai-agents)
 - [Part 7: Administration](#part-7-administration)
   - [7.1 Permissions & Roles](#71-permissions--roles)
   - [7.2 Monitoring & Debugging](#72-monitoring--debugging)
@@ -2574,6 +2575,294 @@ Set the `tenant` field on:
 ```python
 # Tasks automatically filtered by tenant
 tasks = get_my_approval_tasks()  # Only shows tasks for user's tenant
+```
+
+---
+
+## 6.6 Agentic Nodes (AI Agents)
+
+Agentic nodes enable AI-powered decision making within workflows. When a workflow enters an agentic node, it spawns an AI agent that can analyze documents, call tools, and make routing decisions.
+
+### Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Agentic Node Flow                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Workflow enters    Agent executes     Decision extracted       │
+│  agentic state  ──► with tools     ──► from output          ──► │
+│        │                │                    │                   │
+│        ▼                ▼                    ▼                   │
+│  ┌──────────┐    ┌──────────────┐    ┌──────────────┐          │
+│  │ Enqueue  │    │  LangGraph   │    │  Transition  │          │
+│  │ BG Job   │    │  ReAct Agent │    │  to next     │          │
+│  └──────────┘    └──────────────┘    │  state       │          │
+│                         │            └──────────────┘          │
+│                         ▼                                       │
+│                  ┌──────────────┐                               │
+│                  │ Frappe Tools │                               │
+│                  │ Web Search   │                               │
+│                  │ Calculator   │                               │
+│                  │ Code Executor│                               │
+│                  └──────────────┘                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Prerequisites
+
+Install required Python packages:
+
+```bash
+pip install langgraph langchain-core langchain-openai langchain-anthropic
+```
+
+Configure API keys in **XState Workflow Settings**:
+- OpenAI API Key (for GPT models)
+- Anthropic API Key (for Claude models)
+
+### Agent Types
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| **ReAct** | Reasoning + Acting agent | General-purpose decision making |
+| **Tool Executor** | Direct tool execution | Simple tool-based workflows |
+| **Plan & Execute** | Multi-step planning | Complex multi-step processes |
+
+### Available Tools
+
+| Tool | Access Level | Description |
+|------|--------------|-------------|
+| `frappe_read` | read_only, full_crud | Read Frappe documents |
+| `frappe_write` | full_crud | Create/update documents |
+| `frappe_search` | read_only, full_crud | Search across DocTypes |
+| `frappe_method` | any | Call whitelisted methods |
+| `web_search` | any | Search the web |
+| `calculator` | any | Evaluate math expressions |
+| `code_executor` | any | Execute sandboxed Python |
+
+### Configuration
+
+In the workflow builder, add an Agentic node and configure:
+
+#### Basic Settings
+
+```javascript
+{
+  "agentType": "react",           // react, tool_executor, plan_execute
+  "systemPrompt": "You are a document reviewer...",
+  "model": "gpt-4",               // or claude-3-opus, etc.
+  "maxIterations": 10,
+  "timeoutSeconds": 300
+}
+```
+
+#### Tool Configuration
+
+```javascript
+{
+  "enabledTools": [
+    { "name": "frappe_read", "enabled": true },
+    { "name": "calculator", "enabled": true }
+  ],
+  "frappeAccess": "read_only",    // none, read_only, full_crud
+  "allowedMethods": [
+    {
+      "method": "frappe.client.get_value",
+      "allowed_roles": ["System Manager"]
+    }
+  ]
+}
+```
+
+#### Transition Modes
+
+| Mode | Description | Output Events |
+|------|-------------|---------------|
+| `simple` | Success or failure only | `AGENT_SUCCESS`, `AGENT_FAILURE` |
+| `decision` | Route based on agent decision | `DECISION_<CONDITION>` |
+| `custom_events` | Agent emits named events | Custom event names |
+| `all` | All modes combined | Any of the above |
+
+**Decision-based routing example:**
+
+```javascript
+{
+  "transitionMode": "decision",
+  "decisionRoutes": [
+    { "condition": "approved" },
+    { "condition": "rejected" },
+    { "condition": "needs_review" }
+  ]
+}
+```
+
+The agent should output decisions in one of these formats:
+- JSON block: `` ```json { "decision": "approved" } ``` ``
+- Inline: `DECISION: approved`
+- Natural language mentioning the expected decision
+
+### Retry Configuration
+
+Enable automatic retries for transient failures:
+
+```javascript
+{
+  "retryOnFailure": true,
+  "maxRetries": 3
+}
+```
+
+**Retry behavior:**
+- Rate limit errors (429): Retried with exponential backoff
+- Timeout errors: Retried
+- Network errors: Retried
+- Auth errors (401, 403): NOT retried
+- Config errors (400): NOT retried
+
+**Backoff formula:** `delay = min(300, 2^attempt * 10)` seconds
+
+### Security Features
+
+#### Rate Limiting
+
+Each tool has per-minute rate limits:
+
+| Tool | Default Limit |
+|------|---------------|
+| frappe_read | 60/min |
+| frappe_write | 20/min |
+| frappe_search | 30/min |
+| frappe_method | 20/min |
+| web_search | 10/min |
+| calculator | 100/min |
+| code_executor | 10/min |
+
+#### Code Executor Sandboxing
+
+The `code_executor` tool runs in a sandboxed environment:
+
+**Allowed:**
+- Basic Python builtins (abs, len, str, list, dict, etc.)
+- Math operations
+- Document data access (read-only)
+- frappe.utils (date/time utilities)
+
+**Blocked:**
+- File I/O (open, os.*, shutil.*)
+- Network access (socket, requests, urllib)
+- Process execution (subprocess, os.system)
+- Code execution (exec, eval, compile)
+- Dangerous attribute access (__class__, __bases__, etc.)
+
+**Timeout:** 5 seconds maximum execution time
+
+#### Audit Logging
+
+All tool calls are logged with:
+- Tool name and arguments (sensitive fields redacted)
+- Execution duration
+- Success/failure status
+- Error messages
+
+### Testing Agents
+
+Use the test endpoint to validate agent configuration:
+
+```python
+import frappe
+
+result = frappe.call(
+    "xstate_workflow.xstate_workflow.api.workflow.test_agentic_node",
+    doctype="Sales Order",
+    docname="SO-00001",
+    agent_config={
+        "agentType": "react",
+        "systemPrompt": "Classify this order as high_value or standard based on the total.",
+        "model": "gpt-4",
+        "enabledTools": [{"name": "frappe_read", "enabled": True}],
+        "frappeAccess": "read_only",
+        "transitionMode": "decision",
+        "decisionRoutes": [
+            {"condition": "high_value"},
+            {"condition": "standard"}
+        ]
+    }
+)
+
+print(f"Decision: {result['decision']}")
+print(f"Confidence: {result['confidence']}")
+print(f"Reasoning: {result['reasoning']}")
+```
+
+**Note:** Test runs are capped at 5 iterations and 2 minutes timeout.
+
+### Example: Document Classification Workflow
+
+```
+┌─────────┐    ┌──────────────┐    ┌───────────────┐
+│  Draft  │───►│   AI Review  │───►│  High Value   │
+└─────────┘    │   (Agentic)  │    │  Approval     │
+               └──────────────┘    └───────────────┘
+                      │
+                      ▼
+               ┌───────────────┐
+               │   Standard    │
+               │   Processing  │
+               └───────────────┘
+```
+
+**Agent configuration:**
+
+```javascript
+{
+  "type": "agentic",
+  "agentType": "react",
+  "systemPrompt": `You are a document classifier. Analyze the document and classify it:
+    - "high_value" if total > 100,000 or customer is VIP
+    - "standard" otherwise
+
+    Output your decision as: DECISION: <classification>`,
+  "model": "gpt-4",
+  "enabledTools": [
+    { "name": "frappe_read", "enabled": true }
+  ],
+  "frappeAccess": "read_only",
+  "transitionMode": "decision",
+  "decisionRoutes": [
+    { "condition": "high_value" },
+    { "condition": "standard" }
+  ],
+  "maxIterations": 5,
+  "timeoutSeconds": 60,
+  "retryOnFailure": true,
+  "maxRetries": 2
+}
+```
+
+### Troubleshooting
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| "langgraph is not installed" | Missing dependency | `pip install langgraph` |
+| Agent timeout | Too many iterations or slow LLM | Increase timeout or reduce max_iterations |
+| Rate limit errors | Too many API calls | Enable retry, or increase rate limits |
+| Decision not extracted | Output format not recognized | Use explicit `DECISION: <value>` format |
+| Permission denied | Frappe access misconfigured | Check frappeAccess and user permissions |
+
+### Monitoring Agent Execution
+
+Check the Error Log for agent activity:
+
+```python
+# View recent agent errors
+logs = frappe.get_all(
+    "Error Log",
+    filters={"method": ["like", "%Agentic Node%"]},
+    fields=["creation", "error"],
+    order_by="creation desc",
+    limit=10
+)
 ```
 
 ---
