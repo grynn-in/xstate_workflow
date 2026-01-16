@@ -426,7 +426,7 @@ export async function getMcpConnections(): Promise<MCPConnectionInfo[]> {
 
   try {
     return await frappe.xcall<MCPConnectionInfo[]>(
-      'xstate_workflow.xstate_workflow.api.workflow.get_mcp_connections',
+      'xstate_workflow.api.workflow.get_mcp_connections',
       {}
     );
   } catch (err) {
@@ -458,7 +458,7 @@ export async function testAgenticNode(
   }
 
   return frappe.xcall<AgenticTestResult>(
-    'xstate_workflow.xstate_workflow.api.workflow.test_agentic_node',
+    'xstate_workflow.api.workflow.test_agentic_node',
     {
       doctype,
       docname,
