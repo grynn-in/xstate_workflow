@@ -172,7 +172,8 @@ frontend/
 │   ├── desk-widget/    # Desk form integration
 │   └── standalone/     # Standalone builder app
 ├── apps/
-│   └── standalone/     # Standalone entry point
+│   ├── standalone/     # V1 Builder entry point
+│   └── standalone-v2/  # V2 Builder with advanced features
 ```
 
 **Tech Stack:**
@@ -180,6 +181,31 @@ frontend/
 - Vite build system
 - ReactFlow for visual editing
 - Vitest for testing
+
+### Builder Versions
+
+**V1 Builder** (`/xstate-builder`):
+- Core workflow building functionality
+- Drag-and-drop node placement
+- Transition configuration
+
+**V2 Builder** (`/xstate-builder-v2`):
+- All V1 features plus:
+- **Undo/Redo**: Full history support (Ctrl+Z / Ctrl+Shift+Z)
+- **Copy/Paste**: Duplicate nodes and edges (Ctrl+C / Ctrl+V)
+- **Helper Lines**: Alignment guides when dragging nodes
+- **Keyboard Shortcuts**: Delete, select all, escape
+
+### Resizable Panels
+
+Both left (Node Palette) and right (Properties Panel) panels are resizable:
+
+| Feature | Description |
+|---------|-------------|
+| Drag handle | Resize by dragging panel edge |
+| Collapse | Double-click handle to collapse |
+| Min/Max width | Palette: 150-350px, Properties: 280-500px |
+| Persistent | Width preserved during session |
 
 ### Node Types
 
@@ -197,10 +223,43 @@ frontend/
 |-----------|-------------|
 | `start` | Workflow entry point |
 | `end` | Workflow exit point |
-| `approval` | Creates approval task, waits for decision |
+| `approval` | Creates approval task, waits for single approver decision |
+| `parallel_approval` | Concurrent multi-approver workflow with configurable threshold |
 | `auto_action` | Auto-executes actions (submit, update, etc.) |
 | `threshold_gate` | Conditional branch based on value |
 | `classification_branch` | Route based on field value |
+
+### Parallel Approval Node
+
+The Parallel Approval node enables concurrent multi-approver workflows where multiple users must approve before proceeding.
+
+**Configuration:**
+
+| Field | Description |
+|-------|-------------|
+| `approvers` | List of resolver configurations for each approver |
+| `requiredApprovals` | Minimum approvals needed (default: all) |
+| `allowPartialReject` | Continue if some reject but threshold met |
+| `availableActions` | Actions available to each approver |
+
+**Example Configuration:**
+```json
+{
+  "domainType": "parallel_approval",
+  "approvers": [
+    { "type": "role", "role": "Finance Manager", "required": true },
+    { "type": "role", "role": "Department Head", "required": true },
+    { "type": "document_field", "field_name": "custom_reviewer", "required": false }
+  ],
+  "requiredApprovals": 2,
+  "availableActions": ["Approve", "Reject"]
+}
+```
+
+**Use Cases:**
+- Dual-signature approvals (e.g., finance + operations)
+- Committee decisions requiring quorum
+- Multi-department sign-off processes
 
 ### Visual Guard Builder
 
@@ -601,18 +660,39 @@ Supports dot notation: `customer.account_manager`
 ```
 
 #### Hierarchy Walk Resolver (`hierarchy_walk`)
+
+Walks up an organizational hierarchy to find approvers. Ideal for manager approval chains.
+
+**Configuration Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `hierarchy_doctype` | DocType containing hierarchy (e.g., Employee) |
+| `parent_field` | Self-referential link field (e.g., `reports_to → Employee`) |
+| `user_field` | Link to User field (e.g., `user_id → User`) |
+| `start_from` | Starting point: `owner`, `document_field`, or `linked_doc` |
+| `level_mode` | How to walk: `fixed`, `until_condition`, or `all_up_to` |
+| `levels_up` | Number of levels (for `fixed` mode) |
+| `stop_condition` | Field to check for stop (for `until_condition` mode) |
+
+**Level Modes:**
+
+| Mode | Description |
+|------|-------------|
+| `fixed` | Walk exactly N levels up |
+| `until_condition` | Walk until a field is truthy (e.g., `is_top_level = 1`) |
+| `all_up_to` | Collect all approvers up to N levels |
+
+**Example - Manager Approval:**
 ```json
 {
   "type": "hierarchy_walk",
-  "doctype": "Employee",
-  "start_field": "employee",
+  "hierarchy_doctype": "Employee",
   "parent_field": "reports_to",
   "user_field": "user_id",
-  "levels": 2,
-  "stop_condition": {
-    "type": "role",
-    "role": "Department Head"
-  }
+  "start_from": "owner",
+  "level_mode": "fixed",
+  "levels_up": 1
 }
 ```
 

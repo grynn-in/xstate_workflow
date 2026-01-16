@@ -48,6 +48,13 @@ A comprehensive guide to setting up and using XState Workflow for Frappe Framewo
   - [8.2 Multi-Level Approval](#82-multi-level-approval)
   - [8.3 Parallel Review Process](#83-parallel-review-process)
   - [8.4 Conditional Routing](#84-conditional-routing)
+- [Part 9: End User Quick Reference](#part-9-end-user-quick-reference)
+  - [9.1 Receiving Approval Tasks](#91-receiving-approval-tasks)
+  - [9.2 Processing Tasks](#92-processing-tasks)
+  - [9.3 Task Status Guide](#93-task-status-guide)
+  - [9.4 Common Actions](#94-common-actions)
+  - [9.5 Keyboard Navigation](#95-keyboard-navigation)
+  - [9.6 Delegation](#96-delegation-out-of-office)
 - [Appendix](#appendix)
   - [A. Troubleshooting](#a-troubleshooting)
   - [B. API Reference](#b-api-reference)
@@ -316,9 +323,31 @@ The V2 builder (`/xstate-builder-v2`) includes additional features:
 | Feature | Description |
 |---------|-------------|
 | **Undo/Redo** | Ctrl+Z / Ctrl+Shift+Z to undo/redo changes |
-| **Copy/Paste** | Ctrl+C / Ctrl+V to duplicate nodes |
+| **Copy/Paste** | Ctrl+C / Ctrl+V to duplicate nodes and edges |
 | **Helper Lines** | Alignment guides when positioning nodes |
 | **Workflow Selector** | Dropdown to load existing workflows |
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Z` | Undo last action |
+| `Ctrl+Shift+Z` | Redo last undone action |
+| `Ctrl+C` | Copy selected nodes/edges |
+| `Ctrl+V` | Paste copied nodes/edges |
+| `Delete` / `Backspace` | Delete selected elements |
+| `Ctrl+A` | Select all nodes |
+| `Escape` | Deselect all |
+
+### Resizable Panels
+
+Both the Node Palette (left) and Properties Panel (right) are resizable:
+
+- **Drag** the panel edge to resize
+- **Double-click** the edge to collapse/expand
+- **Minimum/Maximum widths**:
+  - Node Palette: 150px - 350px
+  - Properties Panel: 280px - 500px
 
 ---
 
@@ -362,6 +391,13 @@ The V2 builder (`/xstate-builder-v2`) includes additional features:
 │    ┌─────────────┐         Assigns to user or role              │
 │    │ ◇ Approval  │         Waits for human action               │
 │    │   [Actions] │         Configurable action buttons          │
+│    └─────────────┘                                               │
+│                                                                  │
+│  ◇◇ PARALLEL APPROVAL      Multi-approver workflow              │
+│  ─────────────────                                               │
+│    ┌─────────────┐         Multiple concurrent approvers        │
+│    │ ◇◇ Parallel │         Configurable approval threshold      │
+│    │   [2 of 3]  │         Required vs optional approvers       │
 │    └─────────────┘                                               │
 │                                                                  │
 │  ◆ AUTO ACTION NODE        Automatic execution                  │
@@ -413,6 +449,18 @@ The V2 builder (`/xstate-builder-v2`) includes additional features:
 - Configurable assignment (user, role, resolver)
 - Defines available actions (Approve, Reject, etc.)
 - Workflow waits until task is completed
+
+#### Parallel Approval Node
+- Creates multiple approval tasks simultaneously
+- Configure multiple approvers (each with their own resolver)
+- Set approval threshold (e.g., "2 of 3 must approve")
+- Mark approvers as required or optional
+- Ideal for: dual-signature requirements, committee decisions, multi-department sign-offs
+
+**Example Use Cases:**
+- Finance AND Manager must both approve purchases over $10,000
+- Any 2 of 3 department heads must approve budget changes
+- Legal review required, but marketing review is optional
 
 #### Auto Action Node
 - Executes actions automatically on entry
@@ -1708,20 +1756,51 @@ Get user from linked document:
 
 ### Hierarchy Walk
 
-Walk up organizational hierarchy:
+Walk up organizational hierarchy to find approvers. Perfect for manager chains.
 
+**Configuration Options:**
+
+| Field | Description |
+|-------|-------------|
+| `hierarchy_doctype` | DocType with hierarchy (e.g., Employee) |
+| `parent_field` | Self-referential link (e.g., `reports_to → Employee`) |
+| `user_field` | Link to User (e.g., `user_id → User`) |
+| `start_from` | Where to start: `owner`, `document_field`, `linked_doc` |
+| `level_mode` | How to walk: `fixed`, `until_condition`, `all_up_to` |
+| `levels_up` | Number of levels for `fixed` mode |
+| `stop_condition` | Field to check for `until_condition` mode |
+
+**Level Modes:**
+
+| Mode | Behavior |
+|------|----------|
+| `fixed` | Walk exactly N levels up the chain |
+| `until_condition` | Walk until a field is truthy (e.g., `is_top_level = 1`) |
+| `all_up_to` | Collect all approvers up to N levels |
+
+**Example - Direct Manager Approval:**
 ```json
 {
   "type": "hierarchy_walk",
-  "doctype": "Employee",
-  "start_field": "employee",
+  "hierarchy_doctype": "Employee",
   "parent_field": "reports_to",
   "user_field": "user_id",
-  "levels": 2,
-  "stop_condition": {
-    "type": "role",
-    "role": "Department Head"
-  }
+  "start_from": "owner",
+  "level_mode": "fixed",
+  "levels_up": 1
+}
+```
+
+**Example - Walk Until Top Level:**
+```json
+{
+  "type": "hierarchy_walk",
+  "hierarchy_doctype": "Employee",
+  "parent_field": "reports_to",
+  "user_field": "user_id",
+  "start_from": "owner",
+  "level_mode": "until_condition",
+  "stop_condition": "is_top_level"
 }
 ```
 
@@ -2973,6 +3052,78 @@ Route based on document category.
   }
 }
 ```
+
+---
+
+# Part 9: End User Quick Reference
+
+This section is for users who receive and process approval tasks, not workflow builders.
+
+## 9.1 Receiving Approval Tasks
+
+When a document requires your approval, you will:
+1. Receive an email notification (if configured)
+2. See the task in your **My Approvals** dashboard (`/my-approvals`)
+3. See a notification in Frappe/ERPNext
+
+## 9.2 Processing Tasks
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    APPROVAL TASK ACTIONS                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. REVIEW THE DOCUMENT                                         │
+│     • Click the document link to open it                        │
+│     • Review the details, attachments, history                  │
+│                                                                  │
+│  2. ADD COMMENTS (optional)                                     │
+│     • Enter notes explaining your decision                      │
+│     • Comments are saved with the task                          │
+│                                                                  │
+│  3. TAKE ACTION                                                 │
+│     • Click [Approve] to approve and move forward               │
+│     • Click [Reject] to reject and send back                    │
+│     • Other actions may be available depending on workflow      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## 9.3 Task Status Guide
+
+| Status | Meaning |
+|--------|---------|
+| **Pending** | Awaiting your action |
+| **In Progress** | You've claimed but not completed |
+| **Completed** | Action taken, workflow moved on |
+| **Escalated** | Task escalated to someone else |
+
+## 9.4 Common Actions
+
+| Action | When to Use |
+|--------|-------------|
+| **Claim** | Take ownership of a role-based task |
+| **Approve** | Document meets requirements |
+| **Reject** | Document doesn't meet requirements |
+| **Request Changes** | Send back for modifications |
+| **Reassign** | Pass to another person |
+| **Escalate** | Pass to higher authority |
+
+## 9.5 Keyboard Navigation
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Open selected task |
+| `↑/↓` | Navigate task list |
+| `R` | Refresh task list |
+
+## 9.6 Delegation (Out of Office)
+
+If you'll be unavailable:
+1. Go to **User Delegation** in Desk
+2. Create a new delegation record
+3. Set your delegate and date range
+4. Tasks will be routed to your delegate
 
 ---
 
