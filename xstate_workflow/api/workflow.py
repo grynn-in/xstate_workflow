@@ -534,3 +534,159 @@ def cleanup_duplicate_instances(doctype: str = None, docname: str = None, dry_ru
         "deleted": deleted if not dry_run else None,
         "kept": kept
     }
+
+
+@frappe.whitelist()
+def test_agentic_node(
+    doctype: str,
+    docname: str,
+    agent_config: str | dict,
+) -> dict:
+    """
+    Test an agentic node configuration synchronously.
+
+    Runs the agent with capped iterations (5) and timeout (2 minutes)
+    to allow quick testing without full workflow execution.
+
+    Parameters:
+    - doctype (str): Document type to test against
+    - docname (str): Document name to test against
+    - agent_config (dict): Agent configuration from the node panel
+
+    Returns:
+    {
+        "success": bool,
+        "decision": str,
+        "confidence": float,
+        "reasoning": str,
+        "iterations_used": int,
+        "duration_ms": float,
+        "error": str (if failed)
+    }
+    """
+    import time
+
+    # Parse config if string
+    if isinstance(agent_config, str):
+        agent_config = json.loads(agent_config)
+
+    # Validate document exists and user has permission
+    if not frappe.db.exists(doctype, docname):
+        return {
+            "success": False,
+            "error": _("Document {0} {1} not found").format(doctype, docname)
+        }
+
+    if not frappe.has_permission(doctype, "read", docname):
+        return {
+            "success": False,
+            "error": _("You don't have permission to read this document")
+        }
+
+    start_time = time.time()
+
+    try:
+        # Import executor components
+        from xstate_workflow.langgraph.executor import (
+            AgentExecutor,
+            get_llm,
+            extract_decision_structured,
+            _format_doc_for_agent,
+        )
+        from xstate_workflow.langgraph.tools import ToolRegistry
+
+        # Build executor with test limits
+        executor = AgentExecutor(
+            agent_type=agent_config.get("agentType", "react"),
+            system_prompt=agent_config.get("systemPrompt", ""),
+            model=agent_config.get("model"),
+            enabled_tools=agent_config.get("enabledTools", []),
+            frappe_access=agent_config.get("frappeAccess", "none"),
+            allowed_methods=agent_config.get("allowedMethods", []),
+            max_iterations=min(agent_config.get("maxIterations", 5), 5),  # Cap at 5 for testing
+            timeout_seconds=min(agent_config.get("timeoutSeconds", 120), 120),  # Cap at 2 min
+        )
+
+        # Get LLM
+        llm = get_llm(executor.model)
+
+        # Get document
+        doc = frappe.get_doc(doctype, docname)
+        doc_data = doc.as_dict()
+
+        # Build tools
+        tool_registry = ToolRegistry(
+            frappe_access=executor.frappe_access,
+            allowed_methods=executor.allowed_methods,
+            doc=doc_data,
+            doctype=doctype,
+            docname=docname,
+        )
+        tools = tool_registry.get_tools(executor.enabled_tools)
+
+        # Create agent
+        try:
+            from langgraph.prebuilt import create_react_agent
+        except ImportError:
+            return {
+                "success": False,
+                "error": "langgraph is not installed. Run: pip install langgraph"
+            }
+
+        if executor.agent_type == "react":
+            agent = create_react_agent(llm, tools, state_modifier=executor.system_prompt)
+        elif executor.agent_type == "plan_execute":
+            planning_prompt = (
+                f"{executor.system_prompt}\n\n"
+                "Before taking any action, first create a step-by-step plan. "
+                "Then execute the plan systematically, checking results at each step."
+            )
+            agent = create_react_agent(llm, tools, state_modifier=planning_prompt)
+        else:
+            agent = create_react_agent(llm, tools, state_modifier=executor.system_prompt)
+
+        # Prepare input
+        doc_summary = _format_doc_for_agent(doc_data, doctype, docname)
+        input_data = {
+            "messages": [
+                ("system", executor.system_prompt),
+                ("human", f"Process document {doctype}/{docname}.\n\nDocument data:\n{doc_summary}"),
+            ]
+        }
+
+        # Run agent synchronously
+        result = agent.invoke(input_data, config={"recursion_limit": executor.max_iterations})
+
+        # Extract decision
+        last_message = result.get("messages", [])[-1] if result.get("messages") else None
+        expected_decisions = [r.get("condition", "") for r in agent_config.get("decisionRoutes", [])]
+        expected_decisions.extend([e.get("name", "") for e in agent_config.get("customEvents", [])])
+
+        decision, confidence = extract_decision_structured(last_message, expected_decisions)
+
+        # Extract reasoning from last message
+        reasoning = ""
+        if last_message:
+            content = last_message.content if hasattr(last_message, "content") else str(last_message)
+            # Truncate for response
+            reasoning = content[:500] + "..." if len(content) > 500 else content
+
+        duration_ms = (time.time() - start_time) * 1000
+
+        return {
+            "success": True,
+            "decision": decision,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "iterations_used": len(result.get("messages", [])) // 2,  # Rough estimate
+            "duration_ms": duration_ms,
+        }
+
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        frappe.log_error(f"Agentic node test failed: {e}", "Test Agentic Node")
+        return {
+            "success": False,
+            "error": str(e),
+            "duration_ms": duration_ms,
+        }

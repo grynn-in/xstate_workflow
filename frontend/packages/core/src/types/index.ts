@@ -12,6 +12,7 @@ export type DomainNodeType =
   | 'threshold_gate'
   | 'classification_branch'
   | 'approval'
+  | 'parallel_approval'
   | 'auto_action'
   | 'end';
 
@@ -42,12 +43,18 @@ export interface PythonGuardConfig {
 
 export type GuardConfig = SimpleGuardConfig | CompoundGuardConfig | PythonGuardConfig;
 
-// Action Configuration
+// Action Configuration (for defining available actions)
 export interface ActionConfig {
   name: string;
   type: 'entry' | 'exit' | 'transition';
   category: 'builtin' | 'python' | 'webhook';
   description?: string;
+  params?: Record<string, unknown>;
+}
+
+// Configured Action (for storing actions with their parameter values)
+export interface ConfiguredAction {
+  name: string;
   params?: Record<string, unknown>;
 }
 
@@ -86,8 +93,9 @@ export interface WorkflowNodeData {
   xstateType: XStateNodeType;
   description?: string;
   isInitial?: boolean;
-  entryActions?: string[];
-  exitActions?: string[];
+  // Actions can be strings (legacy) or ConfiguredAction objects (with params)
+  entryActions?: Array<string | ConfiguredAction>;
+  exitActions?: Array<string | ConfiguredAction>;
   // For compound/parallel states
   children?: string[];
   initialChild?: string;
@@ -110,7 +118,8 @@ export interface WorkflowEdgeData {
   event?: string;
   transitionType: XStateTransitionType;
   delay?: number;
-  delayUnit?: 'ms' | 'seconds' | 'minutes' | 'hours';
+  delayUnit?: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days';
+  businessHoursOnly?: boolean; // Only count working hours (Mon-Fri, 9 AM - 6 PM)
   guard?: GuardConfig;
   actions?: string[];
   description?: string;
@@ -309,10 +318,17 @@ export interface StartNodeData extends WorkflowNodeData {
 // Threshold Gate Node Data
 export interface ThresholdGateNodeData extends WorkflowNodeData {
   domainType: 'threshold_gate';
-  threshold: {
+  checkType?: 'field' | 'method';  // Default: 'field' for backward compatibility
+  // Field-based check (existing)
+  threshold?: {
     field: string;
     operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'ne';
     value: number;
+  };
+  // Method-based check (NEW)
+  methodCheck?: {
+    method: string;           // e.g., "check_credit_limit"
+    storeResultIn?: string;   // context key to store details
   };
   passTarget?: string;
   failTarget?: string;
@@ -345,6 +361,25 @@ export interface ApprovalNodeData extends WorkflowNodeData {
     user?: string;
     role?: string;
   };
+}
+
+// Parallel Approval Approver Configuration
+export interface ParallelApprover {
+  id: string;
+  label: string;
+  resolver: ResolverConfig;
+  required: boolean;
+}
+
+// Parallel Approval Node Data
+export interface ParallelApprovalNodeData extends WorkflowNodeData {
+  domainType: 'parallel_approval';
+  approvers: ParallelApprover[];
+  completionRule: 'all_required' | 'any_one' | 'quorum';
+  quorumCount?: number;  // For 'quorum' rule: how many must approve
+  onReject: 'reject_all' | 'continue_others';
+  slaHours?: number;
+  priority?: 'Low' | 'Medium' | 'High' | 'Urgent';
 }
 
 // Auto Action Types
@@ -394,6 +429,7 @@ export type DomainNodeData =
   | ThresholdGateNodeData
   | ClassificationBranchNodeData
   | ApprovalNodeData
+  | ParallelApprovalNodeData
   | AutoActionNodeData
   | EndNodeData;
 
@@ -403,6 +439,7 @@ export const DOMAIN_NODE_COLORS: Record<DomainNodeType, string> = {
   threshold_gate: '#f59e0b',
   classification_branch: '#8b5cf6',
   approval: '#3b82f6',
+  parallel_approval: '#6366f1',  // Indigo for parallel approval
   auto_action: '#06b6d4',
   end: '#ef4444',
 } as const;

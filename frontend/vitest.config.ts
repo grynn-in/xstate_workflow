@@ -25,7 +25,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@xstate-workflow/core': resolve(__dirname, 'packages/core/src'),
+      '@xstate-workflow/core-v2': resolve(__dirname, 'packages/core-v2/src'),
       '@xstate-workflow/frappe-adapter': resolve(__dirname, 'packages/frappe-adapter/src'),
+      // Ensure react resolves from root node_modules
+      'react': resolve(__dirname, 'node_modules/react'),
+      'react-dom': resolve(__dirname, 'node_modules/react-dom'),
     },
   },
 });

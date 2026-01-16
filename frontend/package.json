@@ -8,6 +8,8 @@
     "build": "pnpm -r run build",
     "build:standalone": "pnpm --filter @xstate-workflow/standalone build",
     "build:desk": "pnpm --filter @xstate-workflow/desk-widget build",
+    "build:v2": "pnpm --filter @xstate-workflow/standalone-v2 build",
+    "dev:v2": "pnpm --filter @xstate-workflow/standalone-v2 dev",
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",
@@ -17,8 +19,11 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.9",
     "jsdom": "^24.1.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "typescript": "^5.3.3",
     "vitest": "^2.1.9"
   },

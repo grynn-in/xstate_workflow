@@ -130,18 +130,23 @@ export async function getDocTypes(): Promise<string[]> {
     throw new Error('Frappe not available');
   }
 
-  const response = await frappe.xcall<{ message: Array<{ name: string }> }>(
-    'frappe.client.get_list',
-    {
-      doctype: 'DocType',
-      filters: { istable: 0, issingle: 0 },
-      fields: ['name'],
-      order_by: 'name asc',
-      limit_page_length: 0,
-    }
-  );
+  try {
+    const response = await frappe.xcall<Array<{ name: string }>>(
+      'frappe.client.get_list',
+      {
+        doctype: 'DocType',
+        filters: { istable: 0, issingle: 0 },
+        fields: ['name'],
+        order_by: 'name asc',
+        limit_page_length: 0,
+      }
+    );
 
-  return (response.message || []).map((d) => d.name);
+    return (response || []).map((d) => d.name);
+  } catch (err) {
+    console.error('Failed to get DocTypes:', err);
+    return [];
+  }
 }
 
 /**
@@ -254,6 +259,33 @@ export async function getDocTypeFields(doctype: string): Promise<FrappeField[]> 
       }));
   } catch (err) {
     console.error('Failed to get DocType fields:', err);
+    return [];
+  }
+}
+
+/**
+ * Get all users for assignment configuration
+ */
+export async function getUsers(): Promise<Array<{ name: string; full_name: string }>> {
+  if (!frappe) {
+    throw new Error('Frappe not available');
+  }
+
+  try {
+    const response = await frappe.xcall<Array<{ name: string; full_name: string }>>(
+      'frappe.client.get_list',
+      {
+        doctype: 'User',
+        filters: { enabled: 1, user_type: 'System User' },
+        fields: ['name', 'full_name'],
+        order_by: 'full_name asc',
+        limit_page_length: 0,
+      }
+    );
+
+    return (response || []).filter(u => u.name !== 'Guest' && u.name !== 'Administrator');
+  } catch (err) {
+    console.error('Failed to get users:', err);
     return [];
   }
 }

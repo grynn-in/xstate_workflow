@@ -16,6 +16,7 @@ import {
   edgeTypes,
   PropertiesPanel,
   NodePalette,
+  ResizablePanel,
   useWorkflowBuilder,
   workflowToXState,
   xstateToWorkflow,
@@ -30,7 +31,9 @@ import '@xstate-workflow/core/styles';
 import {
   loadMachine,
   getDocTypeFields,
+  getDocTypes,
   getRoles,
+  getUsers,
 } from '@xstate-workflow/frappe-adapter';
 
 interface WorkflowBuilderWidgetProps {
@@ -49,6 +52,8 @@ export function WorkflowBuilderWidget({
   const [isLoading, setIsLoading] = useState(true);
   const [doctypeFields, setDoctypeFields] = useState<FrappeField[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  const [availableDoctypes, setAvailableDoctypes] = useState<string[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ name: string; full_name: string }>>([]);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
 
@@ -74,9 +79,15 @@ export function WorkflowBuilderWidget({
     const loadData = async () => {
       setIsLoading(true);
       try {
-        // Load roles
-        const roles = await getRoles();
+        // Load roles, doctypes, and users in parallel
+        const [roles, doctypes, users] = await Promise.all([
+          getRoles(),
+          getDocTypes(),
+          getUsers(),
+        ]);
         setAvailableRoles(roles);
+        setAvailableDoctypes(doctypes);
+        setAvailableUsers(users);
 
         // Load doctype fields if attached
         if (attachedDoctype) {
@@ -187,12 +198,18 @@ export function WorkflowBuilderWidget({
   return (
     <div className="xsw-widget" style={{ height: '100%', display: 'flex' }}>
       {/* Node Palette */}
-      <div style={{ width: '180px', borderRight: '1px solid #e5e7eb', background: '#f9fafb' }}>
+      <ResizablePanel
+        position="left"
+        defaultWidth={180}
+        minWidth={140}
+        maxWidth={300}
+        collapsedWidth={24}
+      >
         <NodePalette onAddNode={handleAddNode} />
-      </div>
+      </ResizablePanel>
 
       {/* Canvas */}
-      <div style={{ flex: 1, position: 'relative' }} ref={reactFlowWrapper}>
+      <div style={{ flex: 1, position: 'relative', minWidth: 0 }} ref={reactFlowWrapper}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -247,7 +264,13 @@ export function WorkflowBuilderWidget({
       </div>
 
       {/* Properties Panel */}
-      <div style={{ width: '280px', borderLeft: '1px solid #e5e7eb', overflow: 'auto' }}>
+      <ResizablePanel
+        position="right"
+        defaultWidth={280}
+        minWidth={240}
+        maxWidth={400}
+        collapsedWidth={24}
+      >
         <PropertiesPanel
           selectedNode={selectedNode}
           selectedEdge={selectedEdge}
@@ -255,8 +278,11 @@ export function WorkflowBuilderWidget({
           onEdgeChange={updateEdge}
           doctypeFields={doctypeFields}
           availableRoles={availableRoles}
+          availableDoctypes={availableDoctypes}
+          availableUsers={availableUsers}
+          onFetchDoctypeFields={getDocTypeFields}
         />
-      </div>
+      </ResizablePanel>
     </div>
   );
 }

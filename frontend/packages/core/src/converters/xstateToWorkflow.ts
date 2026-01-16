@@ -10,6 +10,7 @@ import type {
   XStateNodeType,
   DomainNodeType,
   ApprovalNodeData,
+  ParallelApprovalNodeData,
   ThresholdGateNodeData,
   ClassificationBranchNodeData,
   AutoActionNodeData,
@@ -266,6 +267,30 @@ function processEventTransitions(
 }
 
 /**
+ * Converts milliseconds to human-readable delay with appropriate unit
+ */
+function convertMsToHumanReadable(ms: number): { delay: number; delayUnit: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days' } {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const HOUR_MS = 60 * 60 * 1000;
+  const MINUTE_MS = 60 * 1000;
+  const SECOND_MS = 1000;
+
+  if (ms >= DAY_MS && ms % DAY_MS === 0) {
+    return { delay: ms / DAY_MS, delayUnit: 'days' };
+  }
+  if (ms >= HOUR_MS && ms % HOUR_MS === 0) {
+    return { delay: ms / HOUR_MS, delayUnit: 'hours' };
+  }
+  if (ms >= MINUTE_MS && ms % MINUTE_MS === 0) {
+    return { delay: ms / MINUTE_MS, delayUnit: 'minutes' };
+  }
+  if (ms >= SECOND_MS && ms % SECOND_MS === 0) {
+    return { delay: ms / SECOND_MS, delayUnit: 'seconds' };
+  }
+  return { delay: ms, delayUnit: 'ms' };
+}
+
+/**
  * Process delayed transitions
  */
 function processDelayedTransitions(
@@ -279,6 +304,7 @@ function processDelayedTransitions(
     if (transition == null) continue;
 
     const delayMs = parseInt(delay, 10);
+    const { delay: humanDelay, delayUnit } = convertMsToHumanReadable(delayMs);
     createEdgeFromTransition(
       transition,
       undefined,
@@ -286,7 +312,8 @@ function processDelayedTransitions(
       sourceId,
       edges,
       stateIdMap,
-      delayMs
+      humanDelay,
+      delayUnit
     );
   }
 }
@@ -318,7 +345,8 @@ function createEdgeFromTransition(
   sourceId: string,
   edges: WorkflowEdge[],
   stateIdMap: Map<string, string>,
-  delay?: number
+  delay?: number,
+  delayUnit?: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days'
 ): void {
   // Skip null/undefined transitions
   if (transition == null) return;
@@ -336,7 +364,7 @@ function createEdgeFromTransition(
       data: {
         event: eventName,
         transitionType,
-        ...(delay && { delay, delayUnit: 'ms' as const }),
+        ...(delay !== undefined && { delay, delayUnit: delayUnit || 'ms' }),
       },
     });
     return;
@@ -352,7 +380,7 @@ function createEdgeFromTransition(
   const edgeData: WorkflowEdgeData = {
     event: eventName,
     transitionType,
-    ...(delay && { delay, delayUnit: 'ms' as const }),
+    ...(delay !== undefined && { delay, delayUnit: delayUnit || 'ms' }),
     actions: transition.actions,
   };
 
@@ -431,12 +459,28 @@ function buildDomainNode(
       } as ApprovalNodeData;
       break;
 
+    case 'parallel_approval':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'parallel',
+        domainType: 'parallel_approval',
+        approvers: meta.approvers as ParallelApprovalNodeData['approvers'],
+        completionRule: (meta.completion_rule as ParallelApprovalNodeData['completionRule']) || 'all_required',
+        quorumCount: meta.quorum_count as number | undefined,
+        onReject: (meta.on_reject as ParallelApprovalNodeData['onReject']) || 'reject_all',
+        slaHours: meta.sla_hours as number | undefined,
+        priority: meta.priority as 'Low' | 'Medium' | 'High' | 'Urgent' | undefined,
+      } as ParallelApprovalNodeData;
+      break;
+
     case 'threshold_gate':
       nodeData = {
         label: (meta.label as string) || stateName,
         xstateType: 'atomic',
         domainType: 'threshold_gate',
+        checkType: (meta.checkType as 'field' | 'method') || 'field',
         threshold: meta.threshold as ThresholdGateNodeData['threshold'],
+        methodCheck: meta.methodCheck as ThresholdGateNodeData['methodCheck'],
       } as ThresholdGateNodeData;
       break;
 

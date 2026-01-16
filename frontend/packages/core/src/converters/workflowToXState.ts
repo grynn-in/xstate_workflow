@@ -8,6 +8,7 @@ import type {
   GuardConfig,
   DomainNodeType,
   ApprovalNodeData,
+  ParallelApprovalNodeData,
   ThresholdGateNodeData,
   ClassificationBranchNodeData,
   AutoActionNodeData,
@@ -20,6 +21,7 @@ const DOMAIN_NODE_TYPES: DomainNodeType[] = [
   'threshold_gate',
   'classification_branch',
   'approval',
+  'parallel_approval',
   'auto_action',
   'end',
 ];
@@ -244,6 +246,8 @@ function calculateDelayMs(delay: number, unit?: string): number {
       return delay * 60 * 1000;
     case 'hours':
       return delay * 60 * 60 * 1000;
+    case 'days':
+      return delay * 24 * 60 * 60 * 1000;
     default: // 'ms' or undefined
       return delay;
   }
@@ -281,6 +285,10 @@ function buildDomainNodeConfig(
       // Approval node creates a task and waits for action
       return buildApprovalNodeConfig(node, allNodes, allEdges);
 
+    case 'parallel_approval':
+      // Parallel approval has multiple concurrent approvers
+      return buildParallelApprovalConfig(node, allNodes, allEdges);
+
     case 'threshold_gate':
       // Threshold gate has conditional always transitions
       return buildThresholdGateConfig(node, allNodes, allEdges);
@@ -315,6 +323,19 @@ function extractDomainNodeMeta(node: WorkflowNode): Record<string, unknown> {
         fallback_user: approvalData.fallbackUser,
         escalation: approvalData.escalation,
         label: approvalData.label,
+      };
+    }
+
+    case 'parallel_approval': {
+      const parallelData = node.data as ParallelApprovalNodeData;
+      return {
+        approvers: parallelData.approvers,
+        completion_rule: parallelData.completionRule,
+        quorum_count: parallelData.quorumCount,
+        on_reject: parallelData.onReject,
+        sla_hours: parallelData.slaHours,
+        priority: parallelData.priority,
+        label: parallelData.label,
       };
     }
 
@@ -448,19 +469,102 @@ function buildApprovalNodeConfig(
   return config;
 }
 
+function buildParallelApprovalConfig(
+  node: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[]
+): XStateStateConfig {
+  const parallelData = node.data as ParallelApprovalNodeData;
+
+  // Build regions for each approver - this creates a parallel state
+  const regions: Record<string, XStateStateConfig> = {};
+
+  for (const approver of parallelData.approvers || []) {
+    regions[approver.id] = {
+      initial: 'pending',
+      states: {
+        pending: {
+          entry: ['create_approval_task'],
+          on: {
+            [`APPROVE_${approver.id}`]: 'approved',
+            [`REJECT_${approver.id}`]: 'rejected',
+          },
+          meta: {
+            approver_config: approver,
+          },
+        },
+        approved: { type: 'final' },
+        rejected: { type: 'final' },
+      },
+    };
+  }
+
+  const config: XStateStateConfig = {
+    type: 'parallel',
+    states: regions,
+    meta: {
+      domain_node: {
+        type: 'parallel_approval',
+        approvers: parallelData.approvers,
+        completion_rule: parallelData.completionRule,
+        quorum_count: parallelData.quorumCount,
+        on_reject: parallelData.onReject,
+        sla_hours: parallelData.slaHours,
+        priority: parallelData.priority,
+        label: parallelData.label,
+      },
+    },
+    on: {},
+  };
+
+  // Find outgoing edges for approved/rejected outcomes
+  const outgoingEdges = allEdges.filter((e) => e.source === node.id);
+  const approvedEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'approved');
+  const rejectedEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'rejected');
+
+  // Add transitions for overall approval/rejection
+  if (approvedEdge) {
+    const approvedTarget = allNodes.find((n) => n.id === approvedEdge.target);
+    if (approvedTarget) {
+      // All required approvers approved - check completion rule
+      config.on!['PARALLEL_APPROVED'] = { target: approvedTarget.data.label };
+    }
+  }
+
+  if (rejectedEdge) {
+    const rejectedTarget = allNodes.find((n) => n.id === rejectedEdge.target);
+    if (rejectedTarget) {
+      config.on!['PARALLEL_REJECTED'] = { target: rejectedTarget.data.label };
+    }
+  }
+
+  return config;
+}
+
 function buildThresholdGateConfig(
   node: WorkflowNode,
   allNodes: WorkflowNode[],
   allEdges: WorkflowEdge[]
 ): XStateStateConfig {
   const gateData = node.data as ThresholdGateNodeData;
+  const isMethodCheck = gateData.checkType === 'method';
+
+  // Build meta based on check type
+  const domainNodeMeta: Record<string, unknown> = {
+    type: 'threshold_gate',
+    checkType: gateData.checkType || 'field',
+    label: gateData.label,
+  };
+
+  if (isMethodCheck) {
+    domainNodeMeta.methodCheck = gateData.methodCheck;
+  } else {
+    domainNodeMeta.threshold = gateData.threshold;
+  }
+
   const config: XStateStateConfig = {
     meta: {
-      domain_node: {
-        type: 'threshold_gate',
-        threshold: gateData.threshold,
-        label: gateData.label,
-      },
+      domain_node: domainNodeMeta,
     },
     always: [],
   };
@@ -470,10 +574,17 @@ function buildThresholdGateConfig(
   const passEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'pass');
   const failEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'fail');
 
-  // Build threshold guard name
-  const guardName = gateData.threshold
-    ? `threshold_${gateData.threshold.field}_${gateData.threshold.operator}_${gateData.threshold.value}`
-    : 'threshold_check';
+  // Build guard name based on check type
+  let guardName: string;
+  if (isMethodCheck) {
+    guardName = gateData.methodCheck?.method
+      ? `method_check_${gateData.methodCheck.method}`
+      : 'method_check';
+  } else {
+    guardName = gateData.threshold
+      ? `threshold_${gateData.threshold.field}_${gateData.threshold.operator}_${gateData.threshold.value}`
+      : 'threshold_check';
+  }
 
   if (passEdge) {
     const passTarget = allNodes.find((n) => n.id === passEdge.target);
