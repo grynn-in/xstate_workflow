@@ -5,3 +5,15 @@
 tags
 node_modules
 __pycache__
+
+# Downloaded examples
+*.zip
+
+# Windows metadata
+*Zone.Identifier
+*:Zone.Identifier
+*:PG$Secure
+*:Avecto.Zone.Identifier
+
+# TypeScript build cache
+*.tsbuildinfo
