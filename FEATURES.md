@@ -225,6 +225,7 @@ Both left (Node Palette) and right (Properties Panel) panels are resizable:
 | `end` | Workflow exit point |
 | `approval` | Creates approval task, waits for single approver decision |
 | `parallel_approval` | Concurrent multi-approver workflow with configurable threshold |
+| `agentic` | AI-powered decision making with LangGraph agents |
 | `auto_action` | Auto-executes actions (submit, update, etc.) |
 | `threshold_gate` | Conditional branch based on value |
 | `classification_branch` | Route based on field value |
@@ -260,6 +261,121 @@ The Parallel Approval node enables concurrent multi-approver workflows where mul
 - Dual-signature approvals (e.g., finance + operations)
 - Committee decisions requiring quorum
 - Multi-department sign-off processes
+
+### Agentic Node (AI Agents)
+
+The Agentic node enables AI-powered decision making within workflows using LangGraph agents. When a workflow enters an agentic state, it spawns an AI agent that can analyze documents, use tools, and make routing decisions.
+
+**Prerequisites:**
+```bash
+pip install langgraph langchain-core langchain-openai langchain-anthropic
+```
+
+**Configuration:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agentType` | Select | `react`, `tool_executor`, `plan_execute` |
+| `systemPrompt` | Text | Instructions for the AI agent |
+| `model` | Data | LLM model (e.g., `gpt-4`, `claude-3-opus`) |
+| `enabledTools` | JSON | List of tools the agent can use |
+| `frappeAccess` | Select | `none`, `read_only`, `full_crud` |
+| `allowedMethods` | JSON | Whitelisted Frappe methods with role restrictions |
+| `transitionMode` | Select | `simple`, `decision`, `custom_events`, `all` |
+| `decisionRoutes` | JSON | Expected decision conditions for routing |
+| `maxIterations` | Int | Maximum agent iterations (default: 10) |
+| `timeoutSeconds` | Int | Execution timeout (default: 300) |
+| `retryOnFailure` | Check | Enable automatic retry on transient errors |
+| `maxRetries` | Int | Maximum retry attempts (default: 3) |
+
+**Available Tools:**
+
+| Tool | Access Level | Description |
+|------|--------------|-------------|
+| `frappe_read` | read_only+ | Read Frappe documents |
+| `frappe_write` | full_crud | Create/update documents |
+| `frappe_search` | read_only+ | Search across DocTypes |
+| `frappe_method` | any | Call whitelisted methods |
+| `web_search` | any | Search the web |
+| `calculator` | any | Evaluate math expressions |
+| `code_executor` | any | Execute sandboxed Python code |
+
+**Transition Modes:**
+
+| Mode | Output Events | Description |
+|------|---------------|-------------|
+| `simple` | `AGENT_SUCCESS`, `AGENT_FAILURE` | Basic success/failure routing |
+| `decision` | `DECISION_<CONDITION>` | Route based on agent's decision |
+| `custom_events` | Custom event names | Agent emits specific events |
+| `all` | Any of the above | Combined mode |
+
+**Example Configuration:**
+```json
+{
+  "type": "agentic",
+  "agentType": "react",
+  "systemPrompt": "Analyze this purchase order. If total > 50000 or vendor is new, output DECISION: high_risk. Otherwise output DECISION: standard.",
+  "model": "gpt-4",
+  "enabledTools": [
+    { "name": "frappe_read", "enabled": true },
+    { "name": "calculator", "enabled": true }
+  ],
+  "frappeAccess": "read_only",
+  "transitionMode": "decision",
+  "decisionRoutes": [
+    { "condition": "high_risk" },
+    { "condition": "standard" }
+  ],
+  "maxIterations": 5,
+  "timeoutSeconds": 60,
+  "retryOnFailure": true,
+  "maxRetries": 2
+}
+```
+
+**Decision Extraction:**
+
+The agent's decision is extracted from its output using multiple methods:
+1. JSON block: `` ```json { "decision": "approved" } ``` ``
+2. Inline JSON: `{"decision": "approved"}`
+3. Marker: `DECISION: approved`
+4. Fuzzy matching against expected routes
+
+**Security Features:**
+- **Rate Limiting**: Per-tool limits (e.g., 60/min for reads, 20/min for writes)
+- **Code Sandboxing**: Blocked: file I/O, network, exec/eval, dangerous imports
+- **Execution Timeout**: 5-second limit for code_executor tool
+- **Audit Logging**: All tool calls logged with sensitive fields redacted
+
+**Error Handling & Retry:**
+
+| Error Type | Retryable | Examples |
+|------------|-----------|----------|
+| Rate limit | Yes | 429, "too many requests" |
+| Timeout | Yes | Connection timeout |
+| Network | Yes | Connection refused |
+| Auth | No | 401, invalid API key |
+| Config | No | 400, invalid model |
+
+Retry uses exponential backoff: `delay = min(300, 2^attempt * 10)` seconds
+
+**Testing API:**
+```python
+result = frappe.call(
+    "xstate_workflow.xstate_workflow.api.workflow.test_agentic_node",
+    doctype="Purchase Order",
+    docname="PO-00001",
+    agent_config={...}
+)
+# Returns: { success, decision, confidence, reasoning, iterations_used, duration_ms }
+```
+
+**Use Cases:**
+- Document classification and routing
+- Automated risk assessment
+- Content review and moderation
+- Data extraction and validation
+- Intelligent escalation decisions
 
 ### Visual Guard Builder
 
