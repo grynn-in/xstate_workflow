@@ -1,0 +1,230 @@
+{
+	"actions": [],
+	"allow_rename": 1,
+	"autoname": "field:connection_name",
+	"creation": "2024-01-01 00:00:00.000000",
+	"doctype": "DocType",
+	"editable_grid": 1,
+	"engine": "InnoDB",
+	"field_order": [
+		"basic_section",
+		"connection_name",
+		"description",
+		"column_break_basic",
+		"is_active",
+		"connection_section",
+		"server_url",
+		"transport_type",
+		"column_break_connection",
+		"timeout_seconds",
+		"auth_section",
+		"auth_type",
+		"api_key",
+		"column_break_auth",
+		"basic_auth_username",
+		"basic_auth_password",
+		"oauth_section",
+		"oauth_config",
+		"access_control_section",
+		"allowed_roles",
+		"metadata_section",
+		"last_tested_at",
+		"last_test_result",
+		"column_break_meta",
+		"tools_discovered"
+	],
+	"fields": [
+		{
+			"fieldname": "basic_section",
+			"fieldtype": "Section Break",
+			"label": "Basic Information"
+		},
+		{
+			"fieldname": "connection_name",
+			"fieldtype": "Data",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Connection Name",
+			"reqd": 1,
+			"unique": 1
+		},
+		{
+			"fieldname": "description",
+			"fieldtype": "Small Text",
+			"label": "Description"
+		},
+		{
+			"fieldname": "column_break_basic",
+			"fieldtype": "Column Break"
+		},
+		{
+			"default": "1",
+			"fieldname": "is_active",
+			"fieldtype": "Check",
+			"in_list_view": 1,
+			"label": "Is Active"
+		},
+		{
+			"fieldname": "connection_section",
+			"fieldtype": "Section Break",
+			"label": "Connection Settings"
+		},
+		{
+			"fieldname": "server_url",
+			"fieldtype": "Data",
+			"in_list_view": 1,
+			"label": "Server URL",
+			"reqd": 1
+		},
+		{
+			"default": "http",
+			"fieldname": "transport_type",
+			"fieldtype": "Select",
+			"label": "Transport Type",
+			"options": "http\nstdio\nwebsocket",
+			"reqd": 1
+		},
+		{
+			"fieldname": "column_break_connection",
+			"fieldtype": "Column Break"
+		},
+		{
+			"default": "30",
+			"description": "Request timeout in seconds",
+			"fieldname": "timeout_seconds",
+			"fieldtype": "Int",
+			"label": "Timeout (seconds)"
+		},
+		{
+			"fieldname": "auth_section",
+			"fieldtype": "Section Break",
+			"label": "Authentication"
+		},
+		{
+			"default": "none",
+			"fieldname": "auth_type",
+			"fieldtype": "Select",
+			"label": "Auth Type",
+			"options": "none\napi_key\nbasic\noauth2",
+			"reqd": 1
+		},
+		{
+			"depends_on": "eval:doc.auth_type=='api_key'",
+			"fieldname": "api_key",
+			"fieldtype": "Password",
+			"label": "API Key"
+		},
+		{
+			"fieldname": "column_break_auth",
+			"fieldtype": "Column Break"
+		},
+		{
+			"depends_on": "eval:doc.auth_type=='basic'",
+			"fieldname": "basic_auth_username",
+			"fieldtype": "Data",
+			"label": "Username"
+		},
+		{
+			"depends_on": "eval:doc.auth_type=='basic'",
+			"fieldname": "basic_auth_password",
+			"fieldtype": "Password",
+			"label": "Password"
+		},
+		{
+			"collapsible": 1,
+			"collapsible_depends_on": "eval:doc.auth_type=='oauth2'",
+			"depends_on": "eval:doc.auth_type=='oauth2'",
+			"fieldname": "oauth_section",
+			"fieldtype": "Section Break",
+			"label": "OAuth2 Configuration"
+		},
+		{
+			"description": "OAuth2 configuration as JSON: {\"client_id\": \"...\", \"client_secret\": \"...\", \"token_url\": \"...\", \"scope\": \"...\"}",
+			"fieldname": "oauth_config",
+			"fieldtype": "Code",
+			"label": "OAuth Config",
+			"options": "JSON"
+		},
+		{
+			"fieldname": "access_control_section",
+			"fieldtype": "Section Break",
+			"label": "Access Control"
+		},
+		{
+			"description": "Roles that can use this MCP connection. Leave empty to allow all roles.",
+			"fieldname": "allowed_roles",
+			"fieldtype": "Table",
+			"label": "Allowed Roles",
+			"options": "MCP Allowed Role"
+		},
+		{
+			"fieldname": "metadata_section",
+			"fieldtype": "Section Break",
+			"label": "Status"
+		},
+		{
+			"fieldname": "last_tested_at",
+			"fieldtype": "Datetime",
+			"label": "Last Tested At",
+			"read_only": 1
+		},
+		{
+			"fieldname": "last_test_result",
+			"fieldtype": "Select",
+			"label": "Last Test Result",
+			"options": "\nSuccess\nFailed",
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_meta",
+			"fieldtype": "Column Break"
+		},
+		{
+			"description": "Number of tools discovered from this MCP server",
+			"fieldname": "tools_discovered",
+			"fieldtype": "Int",
+			"label": "Tools Discovered",
+			"read_only": 1
+		}
+	],
+	"index_web_pages_for_search": 1,
+	"links": [],
+	"modified": "2024-01-01 00:00:00.000000",
+	"modified_by": "Administrator",
+	"module": "Xstate Workflow",
+	"name": "MCP Server Connection",
+	"naming_rule": "By fieldname",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 1,
+			"delete": 0,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Workflow Manager",
+			"share": 1,
+			"write": 1
+		}
+	],
+	"search_fields": "connection_name,server_url",
+	"sort_field": "modified",
+	"sort_order": "DESC",
+	"states": [],
+	"title_field": "connection_name",
+	"track_changes": 1
+}
