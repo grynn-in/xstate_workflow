@@ -23,6 +23,8 @@ import type {
   ThresholdGateNodeData,
   ClassificationBranchNodeData,
   AutoActionNodeData,
+  AgenticNodeData,
+  RestFetchNodeData,
 } from '../types';
 
 let nodeIdCounter = 0;
@@ -38,7 +40,8 @@ function generateEdgeId(): string {
 // Domain node types that need special initialization
 const DOMAIN_NODE_TYPES: DomainNodeType[] = [
   'start', 'end', 'approval', 'parallel_approval',
-  'threshold_gate', 'classification_branch', 'auto_action'
+  'threshold_gate', 'classification_branch', 'auto_action',
+  'agentic', 'rest_fetch'
 ];
 
 function isDomainNodeType(type: string): type is DomainNodeType {
@@ -129,6 +132,33 @@ function getDefaultNodeData(type: string, isFirst: boolean): WorkflowNodeData {
         actionType: 'update_field',
         actionConfig: {},
       } as AutoActionNodeData;
+
+    case 'agentic':
+      return {
+        ...baseData,
+        label: 'AI Agent',
+        domainType: 'agentic',
+        agentType: 'react',
+        systemPrompt: '',
+        frappeAccess: 'read_only',
+        transitionMode: 'simple',
+        maxIterations: 10,
+        timeoutSeconds: 300,
+      } as AgenticNodeData;
+
+    case 'rest_fetch':
+      return {
+        ...baseData,
+        label: 'REST Fetch',
+        domainType: 'rest_fetch',
+        url: '',
+        method: 'GET',
+        authType: 'none',
+        saveResponseTo: 'api_response',
+        onSuccess: 'SUCCESS',
+        onError: 'ERROR',
+        timeoutSeconds: 30,
+      } as RestFetchNodeData;
 
     default:
       return baseData;

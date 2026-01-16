@@ -5,8 +5,7 @@ import {
   MiniMap,
   Background,
   BackgroundVariant,
-  type NodeMouseHandler,
-  type EdgeMouseHandler,
+  type OnSelectionChangeFunc,
   type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -152,24 +151,40 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     }
   }, [initialMachineId, loadConfig]);
 
-  // Handle node click
-  const onNodeClick: NodeMouseHandler = useCallback(
-    (_, node) => {
-      setSelectedNode(node as WorkflowNode);
+  // Track selection with a ref to avoid React Flow's internal state issues
+  const lastSelectionRef = useRef<{ nodeId?: string; edgeId?: string }>({});
+
+  // Handle selection changes - only update on new selections, ignore spurious deselections
+  const onSelectionChange: OnSelectionChangeFunc = useCallback(
+    ({ nodes: selectedNodes, edges: selectedEdges }) => {
+      const newNodeId = selectedNodes.length > 0 ? selectedNodes[0].id : undefined;
+      const newEdgeId = selectedEdges.length > 0 ? selectedEdges[0].id : undefined;
+
+      // If a node is selected
+      if (newNodeId) {
+        lastSelectionRef.current = { nodeId: newNodeId };
+        setSelectedNode(selectedNodes[0] as WorkflowNode);
+        setSelectedEdge(undefined);
+      }
+      // If an edge is selected
+      else if (newEdgeId) {
+        lastSelectionRef.current = { edgeId: newEdgeId };
+        setSelectedEdge(selectedEdges[0] as WorkflowEdge);
+        setSelectedNode(undefined);
+      }
+      // Empty selection - only clear if this looks intentional (both were already empty)
+      else if (!lastSelectionRef.current.nodeId && !lastSelectionRef.current.edgeId) {
+        setSelectedNode(undefined);
+        setSelectedEdge(undefined);
+      }
+      // Otherwise ignore spurious deselection events
     },
-    [setSelectedNode]
+    [setSelectedNode, setSelectedEdge]
   );
 
-  // Handle edge click
-  const onEdgeClick: EdgeMouseHandler = useCallback(
-    (_, edge) => {
-      setSelectedEdge(edge as WorkflowEdge);
-    },
-    [setSelectedEdge]
-  );
-
-  // Handle pane click (deselect)
+  // Handle explicit pane click to deselect
   const onPaneClick = useCallback(() => {
+    lastSelectionRef.current = {};
     setSelectedNode(undefined);
     setSelectedEdge(undefined);
   }, [setSelectedNode, setSelectedEdge]);
@@ -393,8 +408,7 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={onNodeClick}
-            onEdgeClick={onEdgeClick}
+            onSelectionChange={onSelectionChange}
             onPaneClick={onPaneClick}
             onInit={setReactFlowInstance}
             onDragOver={onDragOver}
