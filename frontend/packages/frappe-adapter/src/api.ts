@@ -404,3 +404,65 @@ export async function getMachineStateWithHistory(
     { doctype, docname }
   );
 }
+
+/**
+ * MCP Connection info type
+ */
+export interface MCPConnectionInfo {
+  name: string;
+  connection_name: string;
+  description?: string;
+  tools_discovered?: number;
+}
+
+/**
+ * Get available MCP server connections for the current user.
+ * Used by the AgenticNodePanel to show available MCP servers.
+ */
+export async function getMcpConnections(): Promise<MCPConnectionInfo[]> {
+  if (!frappe) {
+    throw new Error('Frappe not available');
+  }
+
+  try {
+    return await frappe.xcall<MCPConnectionInfo[]>(
+      'xstate_workflow.xstate_workflow.api.workflow.get_mcp_connections',
+      {}
+    );
+  } catch (err) {
+    console.error('Failed to get MCP connections:', err);
+    return [];
+  }
+}
+
+/**
+ * Test an agentic node configuration
+ */
+export interface AgenticTestResult {
+  success: boolean;
+  decision?: string;
+  confidence?: number;
+  reasoning?: string;
+  iterations_used?: number;
+  duration_ms?: number;
+  error?: string;
+}
+
+export async function testAgenticNode(
+  doctype: string,
+  docname: string,
+  agentConfig: Record<string, unknown>
+): Promise<AgenticTestResult> {
+  if (!frappe) {
+    throw new Error('Frappe not available');
+  }
+
+  return frappe.xcall<AgenticTestResult>(
+    'xstate_workflow.xstate_workflow.api.workflow.test_agentic_node',
+    {
+      doctype,
+      docname,
+      agent_config: JSON.stringify(agentConfig),
+    }
+  );
+}

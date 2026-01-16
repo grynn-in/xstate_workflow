@@ -88,6 +88,18 @@ const DOMAIN_PALETTE_ITEMS: PaletteItem[] = [
     description: 'Automatically executes actions: update fields, send emails, submit documents, call APIs.',
   },
   {
+    type: 'agentic',
+    label: 'AI Agent',
+    icon: '🤖',
+    description: 'AI-powered node that uses LLM reasoning to make decisions, fetch data, and route workflows.',
+  },
+  {
+    type: 'rest_fetch',
+    label: 'REST Fetch',
+    icon: '🔗',
+    description: 'Fetch data from external REST APIs and store results in workflow context.',
+  },
+  {
     type: 'end',
     label: 'End',
     icon: '⏹',

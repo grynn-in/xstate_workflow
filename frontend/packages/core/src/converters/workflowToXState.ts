@@ -23,6 +23,8 @@ const DOMAIN_NODE_TYPES: DomainNodeType[] = [
   'approval',
   'parallel_approval',
   'auto_action',
+  'agentic',
+  'rest_fetch',
   'end',
 ];
 

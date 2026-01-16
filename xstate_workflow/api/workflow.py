@@ -144,6 +144,39 @@ Endpoints:
            "options": str
        }
    ]
+
+9. GET /get_mcp_connections
+   Get available MCP server connections for the current user.
+
+   Returns:
+   [
+       {
+           "connection_name": str,
+           "description": str,
+           "transport_type": str,
+           "is_active": bool,
+           "tool_count": int (optional, if cached)
+       }
+   ]
+
+10. GET /get_mcp_tools
+    Get available tools from an MCP server connection.
+
+    Parameters:
+    - connection_name (str): Name of the MCP Server Connection
+
+    Returns:
+    {
+        "success": bool,
+        "tools": [
+            {
+                "name": str,
+                "description": str,
+                "parameters": dict
+            }
+        ],
+        "error": str (if failed)
+    }
 """
 
 import json
@@ -689,4 +722,106 @@ def test_agentic_node(
             "success": False,
             "error": str(e),
             "duration_ms": duration_ms,
+        }
+
+
+@frappe.whitelist()
+def get_mcp_connections() -> list:
+    """
+    Get available MCP server connections for the current user.
+
+    Returns connections where the user has access based on allowed_roles.
+    """
+    from xstate_workflow.xstate_workflow.doctype.mcp_server_connection.mcp_server_connection import (
+        get_active_connections
+    )
+
+    user = frappe.session.user
+
+    # Get active connections the user can access
+    connections = get_active_connections(user)
+
+    return [
+        {
+            "name": conn.get("name", ""),
+            "connection_name": conn.get("connection_name", ""),
+            "description": conn.get("description", ""),
+            "tools_discovered": conn.get("tools_discovered", 0),
+        }
+        for conn in connections
+    ]
+
+
+@frappe.whitelist()
+def get_mcp_tools(connection_name: str) -> dict:
+    """
+    Get available tools from an MCP server connection.
+
+    This connects to the MCP server and discovers available tools.
+    Results are cached for performance.
+
+    Parameters:
+    - connection_name (str): Name of the MCP Server Connection
+
+    Returns:
+    {
+        "success": bool,
+        "tools": [...] or "error": str
+    }
+    """
+    # Validate connection exists
+    if not frappe.db.exists("MCP Server Connection", connection_name):
+        return {
+            "success": False,
+            "error": _("MCP Connection {0} not found").format(connection_name)
+        }
+
+    # Get connection doc and validate access
+    conn_doc = frappe.get_doc("MCP Server Connection", connection_name)
+
+    if not conn_doc.can_user_access():
+        return {
+            "success": False,
+            "error": _("You don't have permission to access this MCP connection")
+        }
+
+    if not conn_doc.is_active:
+        return {
+            "success": False,
+            "error": _("MCP Connection {0} is not active").format(connection_name)
+        }
+
+    try:
+        from xstate_workflow.langgraph.mcp_client import MCPClient
+
+        # Build auth config
+        auth_config = conn_doc.get_auth_config()
+
+        # Create client and list tools
+        client = MCPClient(
+            server_url=conn_doc.server_url,
+            auth_config=auth_config,
+            transport_type=conn_doc.transport_type,
+            timeout=conn_doc.timeout_seconds or 30
+        )
+
+        tools = client.list_tools_sync()
+
+        return {
+            "success": True,
+            "tools": [
+                {
+                    "name": tool.get("name", ""),
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("inputSchema", tool.get("parameters", {}))
+                }
+                for tool in tools
+            ]
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Failed to get MCP tools from {connection_name}: {e}", "MCP Tool Discovery")
+        return {
+            "success": False,
+            "error": str(e)
         }

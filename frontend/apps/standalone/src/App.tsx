@@ -36,7 +36,9 @@ import {
   getDocTypeFields,
   getRoles,
   getUsers,
+  getMcpConnections,
   type FrappeField,
+  type MCPConnectionInfo,
 } from '@xstate-workflow/frappe-adapter';
 
 interface AppProps {
@@ -57,6 +59,8 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
   const [doctypeFields, setDoctypeFields] = useState<FrappeField[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
   const [availableUsers, setAvailableUsers] = useState<Array<{ name: string; full_name: string }>>([]);
+  const [availableMcpConnections, setAvailableMcpConnections] = useState<MCPConnectionInfo[]>([]);
+  const [availableContextVars, setAvailableContextVars] = useState<string[]>([]);
 
   const {
     nodes,
@@ -77,11 +81,12 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
     onChange: () => setHasUnsavedChanges(true),
   });
 
-  // Fetch doctypes, roles, and users on mount
+  // Fetch doctypes, roles, users, and MCP connections on mount
   useEffect(() => {
     getDocTypes().then(setDoctypesList).catch(console.error);
     getRoles().then(setAvailableRoles).catch(console.error);
     getUsers().then(setAvailableUsers).catch(console.error);
+    getMcpConnections().then(setAvailableMcpConnections).catch(console.error);
   }, []);
 
   // Fetch doctype fields when attachedDoctype changes
@@ -122,6 +127,11 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
             console.log('Converted config:', JSON.stringify(config, null, 2));
             console.log('Nodes:', config.nodes.map(n => ({ id: n.id, type: n.type, label: n.data?.label })));
             loadConfig(config);
+
+            // Extract context variables from config
+            if (config.context) {
+              setAvailableContextVars(Object.keys(config.context));
+            }
           }
 
           setHasUnsavedChanges(false);
@@ -328,6 +338,8 @@ export function App({ machineId: initialMachineId, attachedDoctype }: AppProps) 
             availableRoles={availableRoles}
             availableDoctypes={doctypesList}
             availableUsers={availableUsers}
+            availableMcpConnections={availableMcpConnections}
+            availableContextVars={availableContextVars}
             onFetchDoctypeFields={getDocTypeFields}
           />
         </ResizablePanel>

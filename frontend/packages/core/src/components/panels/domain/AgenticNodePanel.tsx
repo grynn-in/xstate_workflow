@@ -1,5 +1,12 @@
 import { memo, useCallback, useMemo, useState } from 'react';
-import type { AgenticNodeData, AllowedMethod, CustomAgentEvent } from '../../../types';
+import type {
+  AgenticNodeData,
+  AllowedMethod,
+  CustomAgentEvent,
+  LinkedDocumentConfig,
+  MCPServerConfig,
+  RestEndpointConfig,
+} from '../../../types';
 
 // Validation result type
 interface ValidationResult {
@@ -124,9 +131,20 @@ const COMMON_FRAPPE_METHODS = [
   'frappe.client.cancel',
 ];
 
+// MCP connection info from API
+export interface MCPConnectionInfo {
+  name: string;
+  connection_name: string;
+  description?: string;
+  tools_discovered?: number;
+}
+
 export interface AgenticNodePanelProps {
   data: AgenticNodeData;
   availableRoles?: string[];
+  availableDocFields?: string[];  // Fields from attached doctype
+  availableContextVars?: string[];  // Available context variables
+  availableMcpConnections?: MCPConnectionInfo[];  // MCP connections from API
   onDataChange: (data: Partial<AgenticNodeData>) => void;
   // Optional: for testing functionality
   testDoctype?: string;
@@ -137,6 +155,9 @@ export interface AgenticNodePanelProps {
 function AgenticNodePanelComponent({
   data,
   availableRoles = [],
+  availableDocFields = [],
+  availableContextVars = [],
+  availableMcpConnections = [],
   onDataChange,
   testDoctype,
   testDocname,
@@ -148,6 +169,17 @@ function AgenticNodePanelComponent({
   // Test state
   const [isTestingAgent, setIsTestingAgent] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+
+  // UI state for collapsible sections
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    dataInput: false,
+    mcpServers: false,
+    restEndpoints: false,
+  });
+
+  const toggleSection = useCallback((section: string) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  }, []);
 
   // Handle test agent button click
   const handleTestAgent = useCallback(async () => {
@@ -234,6 +266,109 @@ function AgenticNodePanelComponent({
     onDataChange({ customEvents: events });
   }, [data.customEvents, onDataChange]);
 
+  // Data Input handlers
+  const handleDocFieldToggle = useCallback((field: string, enabled: boolean) => {
+    const currentFields = data.dataInput?.documentFields || [];
+    let newFields: string[];
+    if (enabled) {
+      newFields = [...currentFields, field];
+    } else {
+      newFields = currentFields.filter(f => f !== field);
+    }
+    onDataChange({
+      dataInput: {
+        ...data.dataInput,
+        documentFields: newFields,
+      },
+    });
+  }, [data.dataInput, onDataChange]);
+
+  const handleContextVarToggle = useCallback((varName: string, enabled: boolean) => {
+    const currentVars = data.dataInput?.contextVariables || [];
+    let newVars: string[];
+    if (enabled) {
+      newVars = [...currentVars, varName];
+    } else {
+      newVars = currentVars.filter(v => v !== varName);
+    }
+    onDataChange({
+      dataInput: {
+        ...data.dataInput,
+        contextVariables: newVars,
+      },
+    });
+  }, [data.dataInput, onDataChange]);
+
+  const handleAddLinkedDoc = useCallback(() => {
+    const linkedDocs = [...(data.dataInput?.linkedDocuments || [])];
+    linkedDocs.push({ linkField: '', fields: [] });
+    onDataChange({
+      dataInput: {
+        ...data.dataInput,
+        linkedDocuments: linkedDocs,
+      },
+    });
+  }, [data.dataInput, onDataChange]);
+
+  const handleLinkedDocChange = useCallback((index: number, updates: Partial<LinkedDocumentConfig>) => {
+    const linkedDocs = [...(data.dataInput?.linkedDocuments || [])];
+    linkedDocs[index] = { ...linkedDocs[index], ...updates };
+    onDataChange({
+      dataInput: {
+        ...data.dataInput,
+        linkedDocuments: linkedDocs,
+      },
+    });
+  }, [data.dataInput, onDataChange]);
+
+  const handleRemoveLinkedDoc = useCallback((index: number) => {
+    const linkedDocs = [...(data.dataInput?.linkedDocuments || [])];
+    linkedDocs.splice(index, 1);
+    onDataChange({
+      dataInput: {
+        ...data.dataInput,
+        linkedDocuments: linkedDocs,
+      },
+    });
+  }, [data.dataInput, onDataChange]);
+
+  // MCP handlers
+  const handleMcpToggle = useCallback((connectionName: string, enabled: boolean) => {
+    const mcps = [...(data.enabledMcps || [])];
+    const idx = mcps.findIndex(m => m.connectionName === connectionName);
+    if (idx >= 0) {
+      mcps[idx] = { ...mcps[idx], enabled };
+    } else {
+      mcps.push({ connectionName, enabled });
+    }
+    onDataChange({ enabledMcps: mcps });
+  }, [data.enabledMcps, onDataChange]);
+
+  // REST endpoint handlers
+  const handleAddRestEndpoint = useCallback(() => {
+    const endpoints = [...(data.restEndpoints || [])];
+    endpoints.push({
+      name: '',
+      url: '',
+      method: 'GET',
+      authType: 'none',
+      description: '',
+    });
+    onDataChange({ restEndpoints: endpoints });
+  }, [data.restEndpoints, onDataChange]);
+
+  const handleRestEndpointChange = useCallback((index: number, updates: Partial<RestEndpointConfig>) => {
+    const endpoints = [...(data.restEndpoints || [])];
+    endpoints[index] = { ...endpoints[index], ...updates };
+    onDataChange({ restEndpoints: endpoints });
+  }, [data.restEndpoints, onDataChange]);
+
+  const handleRemoveRestEndpoint = useCallback((index: number) => {
+    const endpoints = [...(data.restEndpoints || [])];
+    endpoints.splice(index, 1);
+    onDataChange({ restEndpoints: endpoints });
+  }, [data.restEndpoints, onDataChange]);
+
   return (
     <div className="xsw-domain-panel xsw-agentic-panel">
       <div className="xsw-panel-header">AI Agent Configuration</div>
@@ -306,6 +441,296 @@ function AgenticNodePanelComponent({
             );
           })}
         </div>
+      </div>
+
+      <div className="xsw-node-separator" style={{ margin: '16px 0' }} />
+
+      {/* Data Input Configuration */}
+      <div className="xsw-panel-section">
+        <div
+          className="xsw-panel-section-title"
+          style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          onClick={() => toggleSection('dataInput')}
+        >
+          <span>Data Input Configuration</span>
+          <span style={{ fontSize: '12px' }}>{expandedSections.dataInput ? '▼' : '▶'}</span>
+        </div>
+
+        {expandedSections.dataInput && (
+          <div style={{ marginTop: '8px' }}>
+            <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '8px' }}>
+              Configure which data is pre-loaded for the agent
+            </div>
+
+            {/* Document Fields */}
+            {availableDocFields.length > 0 && (
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>
+                  Document Fields
+                </label>
+                <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '4px' }}>
+                  {availableDocFields.map(field => (
+                    <label key={field} className="xsw-checkbox" style={{ fontSize: '11px' }}>
+                      <input
+                        type="checkbox"
+                        checked={data.dataInput?.documentFields?.includes(field) || false}
+                        onChange={(e) => handleDocFieldToggle(field, e.target.checked)}
+                      />
+                      <span>{field}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Context Variables */}
+            {availableContextVars.length > 0 && (
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>
+                  Context Variables
+                </label>
+                <div style={{ maxHeight: '100px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '4px' }}>
+                  {availableContextVars.map(varName => (
+                    <label key={varName} className="xsw-checkbox" style={{ fontSize: '11px' }}>
+                      <input
+                        type="checkbox"
+                        checked={data.dataInput?.contextVariables?.includes(varName) || false}
+                        onChange={(e) => handleContextVarToggle(varName, e.target.checked)}
+                      />
+                      <span>{varName}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Linked Documents */}
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>
+                Linked Documents
+              </label>
+              {data.dataInput?.linkedDocuments?.map((linked, index) => (
+                <div key={index} style={{
+                  padding: '8px',
+                  background: '#f8fafc',
+                  borderRadius: '4px',
+                  marginBottom: '8px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+                    <input
+                      type="text"
+                      className="xsw-input"
+                      style={{ flex: 1 }}
+                      placeholder="Link field (e.g., customer)"
+                      value={linked.linkField}
+                      onChange={(e) => handleLinkedDocChange(index, { linkField: e.target.value })}
+                    />
+                    <button
+                      className="xsw-button xsw-button-secondary"
+                      style={{ padding: '4px 8px', minWidth: 'auto' }}
+                      onClick={() => handleRemoveLinkedDoc(index)}
+                    >
+                      x
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    className="xsw-input"
+                    placeholder="Fields to fetch (comma-separated)"
+                    value={linked.fields.join(', ')}
+                    onChange={(e) => handleLinkedDocChange(index, {
+                      fields: e.target.value.split(',').map(f => f.trim()).filter(Boolean)
+                    })}
+                  />
+                </div>
+              ))}
+              <button
+                className="xsw-button xsw-button-secondary"
+                style={{ width: '100%' }}
+                onClick={handleAddLinkedDoc}
+              >
+                + Add Linked Document
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="xsw-node-separator" style={{ margin: '16px 0' }} />
+
+      {/* MCP Servers */}
+      <div className="xsw-panel-section">
+        <div
+          className="xsw-panel-section-title"
+          style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          onClick={() => toggleSection('mcpServers')}
+        >
+          <span>MCP Servers</span>
+          <span style={{ fontSize: '12px' }}>{expandedSections.mcpServers ? '▼' : '▶'}</span>
+        </div>
+
+        {expandedSections.mcpServers && (
+          <div style={{ marginTop: '8px' }}>
+            <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '8px' }}>
+              Enable external tool servers (Model Context Protocol)
+            </div>
+
+            {availableMcpConnections.length === 0 ? (
+              <div style={{ fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
+                No MCP connections configured. Create an MCP Server Connection document first.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {availableMcpConnections.map(mcp => {
+                  const isEnabled = data.enabledMcps?.find(m => m.connectionName === mcp.connection_name)?.enabled || false;
+                  return (
+                    <label key={mcp.name} className="xsw-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={isEnabled}
+                        onChange={(e) => handleMcpToggle(mcp.connection_name, e.target.checked)}
+                      />
+                      <div>
+                        <span style={{ fontWeight: 500 }}>{mcp.connection_name}</span>
+                        {mcp.tools_discovered !== undefined && (
+                          <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '4px' }}>
+                            ({mcp.tools_discovered} tools)
+                          </span>
+                        )}
+                        {mcp.description && (
+                          <div style={{ fontSize: '11px', color: '#6b7280' }}>{mcp.description}</div>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="xsw-node-separator" style={{ margin: '16px 0' }} />
+
+      {/* REST Endpoints */}
+      <div className="xsw-panel-section">
+        <div
+          className="xsw-panel-section-title"
+          style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          onClick={() => toggleSection('restEndpoints')}
+        >
+          <span>REST Endpoints</span>
+          <span style={{ fontSize: '12px' }}>{expandedSections.restEndpoints ? '▼' : '▶'}</span>
+        </div>
+
+        {expandedSections.restEndpoints && (
+          <div style={{ marginTop: '8px' }}>
+            <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '8px' }}>
+              Configure REST APIs as tools for the agent
+            </div>
+
+            {data.restEndpoints?.map((endpoint, index) => (
+              <div key={index} style={{
+                padding: '12px',
+                background: '#f8fafc',
+                borderRadius: '4px',
+                marginBottom: '8px',
+                border: '1px solid #e2e8f0'
+              }}>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <input
+                    type="text"
+                    className="xsw-input"
+                    style={{ flex: 1 }}
+                    placeholder="Tool name (e.g., get_po_details)"
+                    value={endpoint.name}
+                    onChange={(e) => handleRestEndpointChange(index, { name: e.target.value })}
+                  />
+                  <button
+                    className="xsw-button xsw-button-secondary"
+                    style={{ padding: '4px 8px', minWidth: 'auto' }}
+                    onClick={() => handleRemoveRestEndpoint(index)}
+                  >
+                    x
+                  </button>
+                </div>
+
+                <input
+                  type="text"
+                  className="xsw-input"
+                  placeholder="URL (use {{field}} for substitution)"
+                  value={endpoint.url}
+                  onChange={(e) => handleRestEndpointChange(index, { url: e.target.value })}
+                  style={{ marginBottom: '8px' }}
+                />
+
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <select
+                    className="xsw-select"
+                    style={{ width: '100px' }}
+                    value={endpoint.method}
+                    onChange={(e) => handleRestEndpointChange(index, { method: e.target.value as RestEndpointConfig['method'] })}
+                  >
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                  <select
+                    className="xsw-select"
+                    style={{ flex: 1 }}
+                    value={endpoint.authType}
+                    onChange={(e) => handleRestEndpointChange(index, { authType: e.target.value as RestEndpointConfig['authType'] })}
+                  >
+                    <option value="none">No Auth</option>
+                    <option value="api_key">API Key</option>
+                    <option value="basic">Basic Auth</option>
+                    <option value="bearer">Bearer Token</option>
+                  </select>
+                </div>
+
+                {endpoint.authType !== 'none' && (
+                  <input
+                    type="text"
+                    className="xsw-input"
+                    placeholder="Auth credential (or config:key_name)"
+                    value={endpoint.authCredential || ''}
+                    onChange={(e) => handleRestEndpointChange(index, { authCredential: e.target.value })}
+                    style={{ marginBottom: '8px' }}
+                  />
+                )}
+
+                {(endpoint.method === 'POST' || endpoint.method === 'PUT') && (
+                  <textarea
+                    className="xsw-textarea"
+                    rows={2}
+                    placeholder="Request body (JSON, use {{field}} for substitution)"
+                    value={endpoint.body || ''}
+                    onChange={(e) => handleRestEndpointChange(index, { body: e.target.value })}
+                    style={{ marginBottom: '8px' }}
+                  />
+                )}
+
+                <input
+                  type="text"
+                  className="xsw-input"
+                  placeholder="Description (helps agent understand when to use)"
+                  value={endpoint.description}
+                  onChange={(e) => handleRestEndpointChange(index, { description: e.target.value })}
+                />
+              </div>
+            ))}
+
+            <button
+              className="xsw-button xsw-button-secondary"
+              style={{ width: '100%' }}
+              onClick={handleAddRestEndpoint}
+            >
+              + Add REST Endpoint
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="xsw-node-separator" style={{ margin: '16px 0' }} />

@@ -5,6 +5,8 @@ import { ParallelApprovalNode } from './ParallelApprovalNode';
 import { ThresholdGateNode } from './ThresholdGateNode';
 import { ClassificationBranchNode } from './ClassificationBranchNode';
 import { AutoActionNode } from './AutoActionNode';
+import { AgenticNode } from './AgenticNode';
+import { RestFetchNode } from './RestFetchNode';
 
 export { StartNode } from './StartNode';
 export { EndNode } from './EndNode';
@@ -13,6 +15,8 @@ export { ParallelApprovalNode } from './ParallelApprovalNode';
 export { ThresholdGateNode } from './ThresholdGateNode';
 export { ClassificationBranchNode } from './ClassificationBranchNode';
 export { AutoActionNode } from './AutoActionNode';
+export { AgenticNode } from './AgenticNode';
+export { RestFetchNode } from './RestFetchNode';
 
 // Domain node type mapping for React Flow registration
 export const domainNodeTypes = {
@@ -23,6 +27,8 @@ export const domainNodeTypes = {
   threshold_gate: ThresholdGateNode,
   classification_branch: ClassificationBranchNode,
   auto_action: AutoActionNode,
+  agentic: AgenticNode,
+  rest_fetch: RestFetchNode,
 } as const;
 
 export type DomainNodeTypeKey = keyof typeof domainNodeTypes;

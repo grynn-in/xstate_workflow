@@ -34,6 +34,8 @@ import {
   getDocTypes,
   getRoles,
   getUsers,
+  getMcpConnections,
+  type MCPConnectionInfo,
 } from '@xstate-workflow/frappe-adapter';
 
 interface WorkflowBuilderWidgetProps {
@@ -54,6 +56,8 @@ export function WorkflowBuilderWidget({
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
   const [availableDoctypes, setAvailableDoctypes] = useState<string[]>([]);
   const [availableUsers, setAvailableUsers] = useState<Array<{ name: string; full_name: string }>>([]);
+  const [availableMcpConnections, setAvailableMcpConnections] = useState<MCPConnectionInfo[]>([]);
+  const [availableContextVars, setAvailableContextVars] = useState<string[]>([]);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
 
@@ -79,15 +83,17 @@ export function WorkflowBuilderWidget({
     const loadData = async () => {
       setIsLoading(true);
       try {
-        // Load roles, doctypes, and users in parallel
-        const [roles, doctypes, users] = await Promise.all([
+        // Load roles, doctypes, users, and MCP connections in parallel
+        const [roles, doctypes, users, mcpConnections] = await Promise.all([
           getRoles(),
           getDocTypes(),
           getUsers(),
+          getMcpConnections(),
         ]);
         setAvailableRoles(roles);
         setAvailableDoctypes(doctypes);
         setAvailableUsers(users);
+        setAvailableMcpConnections(mcpConnections);
 
         // Load doctype fields if attached
         if (attachedDoctype) {
@@ -101,10 +107,18 @@ export function WorkflowBuilderWidget({
           if (data.workflow_builder_config) {
             const config = JSON.parse(data.workflow_builder_config) as WorkflowBuilderConfig;
             loadConfig(config);
+            // Extract context vars
+            if (config.context) {
+              setAvailableContextVars(Object.keys(config.context));
+            }
           } else if (data.json_config) {
             const xstate = JSON.parse(data.json_config);
             const config = xstateToWorkflow(xstate);
             loadConfig(config);
+            // Extract context vars
+            if (config.context) {
+              setAvailableContextVars(Object.keys(config.context));
+            }
           }
         }
       } catch (err) {
@@ -280,6 +294,8 @@ export function WorkflowBuilderWidget({
           availableRoles={availableRoles}
           availableDoctypes={availableDoctypes}
           availableUsers={availableUsers}
+          availableMcpConnections={availableMcpConnections}
+          availableContextVars={availableContextVars}
           onFetchDoctypeFields={getDocTypeFields}
         />
       </ResizablePanel>

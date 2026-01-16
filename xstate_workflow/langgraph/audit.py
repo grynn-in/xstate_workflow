@@ -211,13 +211,16 @@ def audit_tool_wrapper(tool_func: Callable, tool_name: str, doctype: str, docnam
 
 class RateLimiter:
 	"""
-	Simple in-memory rate limiter for tool calls.
+	Distributed rate limiter for tool calls using Redis.
 
-	Uses a sliding window approach to track calls per time period.
+	Uses a sliding window approach with Redis-backed storage to track
+	calls per time period across multiple workers.
+
+	Falls back to in-memory storage if Redis is not available.
 	"""
 
-	# Class-level storage for rate limiting (shared across instances)
-	_call_history: dict = {}
+	# Class-level fallback storage for when Redis is unavailable
+	_fallback_history: dict = {}
 
 	def __init__(
 		self,
@@ -236,19 +239,72 @@ class RateLimiter:
 		self.max_calls = max_calls
 		self.period_seconds = period_seconds
 		self.key_prefix = key_prefix
+		self._use_redis = self._check_redis_available()
+
+	def _check_redis_available(self) -> bool:
+		"""Check if Redis is available via frappe.cache."""
+		try:
+			# Try to ping the Redis connection
+			cache = frappe.cache
+			if cache and hasattr(cache, 'set_value'):
+				# Test write and read
+				test_key = "rate_limit:test"
+				cache.set_value(test_key, "test", expires_in_sec=1)
+				return True
+		except Exception:
+			pass
+		return False
 
 	def _get_key(self, identifier: str) -> str:
 		"""Generate a unique key for rate limiting."""
-		return f"{self.key_prefix}:{identifier}"
+		return f"rate_limit:{self.key_prefix}:{identifier}"
 
-	def _clean_old_entries(self, key: str) -> None:
-		"""Remove entries older than the period."""
-		if key not in self._call_history:
+	def _get_redis_count(self, key: str) -> int:
+		"""Get the current count from Redis using sorted set."""
+		try:
+			cache = frappe.cache
+			redis_client = cache.get_redis()
+
+			# Use Redis sorted set with timestamps as scores
+			now = time.time()
+			cutoff = now - self.period_seconds
+
+			# Remove old entries
+			redis_client.zremrangebyscore(key, 0, cutoff)
+
+			# Get current count
+			return redis_client.zcard(key) or 0
+		except Exception as e:
+			frappe.logger().debug(f"Redis rate limit error: {e}")
+			return -1  # Signal to use fallback
+
+	def _record_redis_call(self, key: str) -> bool:
+		"""Record a call in Redis."""
+		try:
+			cache = frappe.cache
+			redis_client = cache.get_redis()
+
+			now = time.time()
+
+			# Add timestamp to sorted set
+			redis_client.zadd(key, {str(now): now})
+
+			# Set expiry on the key to auto-cleanup
+			redis_client.expire(key, self.period_seconds + 10)
+
+			return True
+		except Exception as e:
+			frappe.logger().debug(f"Redis record error: {e}")
+			return False
+
+	def _clean_old_entries_fallback(self, key: str) -> None:
+		"""Remove entries older than the period (fallback in-memory)."""
+		if key not in self._fallback_history:
 			return
 
 		cutoff = time.time() - self.period_seconds
-		self._call_history[key] = [
-			ts for ts in self._call_history[key]
+		self._fallback_history[key] = [
+			ts for ts in self._fallback_history[key]
 			if ts > cutoff
 		]
 
@@ -263,12 +319,20 @@ class RateLimiter:
 			Tuple of (is_allowed, remaining_calls)
 		"""
 		key = self._get_key(identifier)
-		self._clean_old_entries(key)
 
-		if key not in self._call_history:
-			self._call_history[key] = []
+		if self._use_redis:
+			current_count = self._get_redis_count(key)
+			if current_count >= 0:  # Redis succeeded
+				remaining = max(0, self.max_calls - current_count)
+				return (current_count < self.max_calls, remaining)
 
-		current_count = len(self._call_history[key])
+		# Fallback to in-memory
+		self._clean_old_entries_fallback(key)
+
+		if key not in self._fallback_history:
+			self._fallback_history[key] = []
+
+		current_count = len(self._fallback_history[key])
 		remaining = max(0, self.max_calls - current_count)
 
 		return (current_count < self.max_calls, remaining)
@@ -276,9 +340,15 @@ class RateLimiter:
 	def record_call(self, identifier: str) -> None:
 		"""Record a call for rate limiting."""
 		key = self._get_key(identifier)
-		if key not in self._call_history:
-			self._call_history[key] = []
-		self._call_history[key].append(time.time())
+
+		if self._use_redis:
+			if self._record_redis_call(key):
+				return
+
+		# Fallback to in-memory
+		if key not in self._fallback_history:
+			self._fallback_history[key] = []
+		self._fallback_history[key].append(time.time())
 
 	def is_allowed(self, identifier: str) -> bool:
 		"""
@@ -294,6 +364,40 @@ class RateLimiter:
 		if allowed:
 			self.record_call(identifier)
 		return allowed
+
+	def get_remaining(self, identifier: str) -> int:
+		"""
+		Get remaining calls allowed for an identifier.
+
+		Args:
+			identifier: Unique identifier for the rate limit bucket
+
+		Returns:
+			Number of remaining calls allowed
+		"""
+		_, remaining = self.check_rate_limit(identifier)
+		return remaining
+
+	def reset(self, identifier: str) -> None:
+		"""
+		Reset rate limit for an identifier (admin use).
+
+		Args:
+			identifier: Unique identifier to reset
+		"""
+		key = self._get_key(identifier)
+
+		if self._use_redis:
+			try:
+				cache = frappe.cache
+				redis_client = cache.get_redis()
+				redis_client.delete(key)
+			except Exception:
+				pass
+
+		# Also clear fallback
+		if key in self._fallback_history:
+			del self._fallback_history[key]
 
 
 def create_rate_limited_tool(

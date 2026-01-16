@@ -9,6 +9,8 @@ import type {
   ThresholdGateNodeData,
   AutoActionNodeData,
   ClassificationBranchNodeData,
+  AgenticNodeData,
+  RestFetchNodeData,
 } from '../../types';
 import { GuardBuilderPanel } from './GuardBuilderPanel';
 import { ActionBuilderPanel } from './ActionBuilderPanel';
@@ -18,6 +20,8 @@ import { ParallelApprovalPanel } from './domain/ParallelApprovalPanel';
 import { ThresholdGatePanel } from './domain/ThresholdGatePanel';
 import { AutoActionPanel } from './domain/AutoActionPanel';
 import { ClassificationBranchPanel } from './domain/ClassificationBranchPanel';
+import { AgenticNodePanel, type MCPConnectionInfo } from './domain/AgenticNodePanel';
+import { RestFetchPanel } from './domain/RestFetchPanel';
 
 export interface PropertiesPanelProps {
   selectedNode?: WorkflowNode;
@@ -26,6 +30,9 @@ export interface PropertiesPanelProps {
   availableRoles?: string[];
   availableDoctypes?: string[];
   availableUsers?: Array<{ name: string; full_name: string }>;
+  // Agentic node specific props
+  availableMcpConnections?: MCPConnectionInfo[];
+  availableContextVars?: string[];
   onNodeChange?: (nodeId: string, data: Partial<WorkflowNode['data']>) => void;
   onEdgeChange?: (edgeId: string, data: Partial<WorkflowEdge['data']>) => void;
   onFetchDoctypeFields?: (doctype: string) => Promise<FrappeField[]>;
@@ -40,6 +47,8 @@ function PropertiesPanelComponent({
   availableRoles = ['System Manager', 'Administrator'],
   availableDoctypes = [],
   availableUsers = [],
+  availableMcpConnections = [],
+  availableContextVars = [],
   onNodeChange,
   onEdgeChange,
   onFetchDoctypeFields,
@@ -239,6 +248,26 @@ function PropertiesPanelComponent({
             <ClassificationBranchPanel
               data={selectedNode.data as ClassificationBranchNodeData}
               doctypeFields={doctypeFields}
+              onDataChange={handleDomainDataChange}
+            />
+          )}
+
+          {domainType === 'agentic' && (
+            <AgenticNodePanel
+              data={selectedNode.data as AgenticNodeData}
+              availableRoles={availableRoles}
+              availableDocFields={doctypeFields.map(f => f.fieldname)}
+              availableContextVars={availableContextVars}
+              availableMcpConnections={availableMcpConnections}
+              onDataChange={handleDomainDataChange}
+            />
+          )}
+
+          {domainType === 'rest_fetch' && (
+            <RestFetchPanel
+              data={selectedNode.data as RestFetchNodeData}
+              doctypeFields={doctypeFields.map(f => f.fieldname)}
+              availableContextVars={availableContextVars}
               onDataChange={handleDomainDataChange}
             />
           )}
