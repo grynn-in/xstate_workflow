@@ -70,6 +70,11 @@ def get_domain_node_actions(machine_doc, ref_doc, instance) -> dict:
         "resolve_assignment": lambda ctx, evt: _resolve_assignment_action(
             ctx, evt, ref_doc, instance
         ),
+
+        # Agentic node actions
+        "start_agent": lambda ctx, evt: _start_agent_action(
+            ctx, evt, ref_doc, instance
+        ),
     }
 
 
@@ -545,3 +550,109 @@ def _substitute_dict_template(d: dict, context: dict, ref_doc) -> dict:
         else:
             result[key] = value
     return result
+
+
+# Agentic Node Handlers
+
+def handle_agentic_node_entry(
+    node_config: dict,
+    context: dict,
+    event: dict,
+    ref_doc: "Document",
+    instance: "Document"
+) -> dict:
+    """
+    Handle entry into an agentic (AI agent) node.
+
+    Starts AI agent execution as a background job.
+
+    Args:
+        node_config: The agentic node configuration
+        context: Current workflow context
+        event: Triggering event data
+        ref_doc: Reference document
+        instance: Machine Instance
+
+    Returns:
+        Updated context
+    """
+    from xstate_workflow.langgraph.executor import AgentExecutor
+
+    # Extract agentic node configuration from meta
+    meta = node_config.get("meta", {})
+    domain_node = meta.get("domain_node", {})
+
+    if not domain_node or domain_node.get("type") != "agentic":
+        # Not an agentic node, skip
+        return context
+
+    # Build executor configuration
+    executor = AgentExecutor(
+        agent_type=domain_node.get("agent_type", "react"),
+        system_prompt=domain_node.get("system_prompt", ""),
+        model=domain_node.get("model"),
+        enabled_tools=domain_node.get("enabled_tools", []),
+        frappe_access=domain_node.get("frappe_access", "none"),
+        allowed_methods=domain_node.get("allowed_methods", []),
+        max_iterations=domain_node.get("max_iterations", 10),
+        timeout_seconds=domain_node.get("timeout_seconds", 300),
+    )
+
+    # Get transition configuration
+    transition_mode = domain_node.get("transition_mode", "simple")
+    decision_routes = domain_node.get("decision_routes", [])
+    custom_events = domain_node.get("custom_events", [])
+
+    # Get retry configuration
+    retry_config = {
+        "retry_on_failure": domain_node.get("retry_on_failure", False),
+        "max_retries": domain_node.get("max_retries", 3),
+    }
+
+    # Get document data
+    doc_data = ref_doc.as_dict()
+
+    # Get current state name
+    state_name = node_config.get("id") or context.get("_current_state", "")
+
+    # Calculate timeout with buffer
+    timeout = domain_node.get("timeout_seconds", 300) + 60
+
+    # Enqueue agent execution as background job
+    frappe.enqueue(
+        "xstate_workflow.langgraph.executor.run_agent",
+        queue="default",
+        timeout=timeout,
+        executor_config=executor.to_dict(),
+        doc=doc_data,
+        doctype=ref_doc.doctype,
+        docname=ref_doc.name,
+        state_name=state_name,
+        transition_mode=transition_mode,
+        decision_routes=decision_routes,
+        custom_events=custom_events,
+        retry_config=retry_config,
+        attempt=0,
+    )
+
+    # Mark in context that agent is running
+    context["_agent_started"] = True
+    context["_agent_state"] = state_name
+
+    # Update instance status
+    instance.status = "active"
+    instance.save(ignore_permissions=True)
+
+    return context
+
+
+def _start_agent_action(context: dict, event: dict, ref_doc, instance) -> dict:
+    """Start agent action - delegates to handle_agentic_node_entry."""
+    handle_agentic_node_entry(
+        node_config=event.get("node_config", {}),
+        context=context,
+        event=event,
+        ref_doc=ref_doc,
+        instance=instance
+    )
+    return context

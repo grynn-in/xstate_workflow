@@ -1292,6 +1292,41 @@ def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_
         except Exception as e:
             frappe.log_error(f"Failed to create approval task: {e}")
 
+    if node_type == "agentic":
+        # Start AI agent execution
+        try:
+            from xstate_workflow.domain_nodes.handlers import handle_agentic_node_entry
+
+            # Build node_config structure expected by handler
+            node_config = {
+                "id": state_name,
+                "meta": {
+                    "domain_node": domain_node
+                }
+            }
+
+            # Get current context
+            context = json.loads(instance.context or "{}")
+
+            # Call the handler
+            handle_agentic_node_entry(
+                node_config=node_config,
+                context=context,
+                event={},
+                ref_doc=ref_doc,
+                instance=instance
+            )
+
+            frappe.msgprint(
+                _("AI agent started for workflow processing"),
+                indicator="blue",
+                alert=True
+            )
+        except ImportError as e:
+            frappe.log_error(f"Import error starting agent: {e}")
+        except Exception as e:
+            frappe.log_error(f"Failed to start agent: {e}")
+
 
 def get_instance_for_doc(doctype: str, docname: str):
     """
