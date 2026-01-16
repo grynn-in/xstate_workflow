@@ -91,6 +91,9 @@ export function useWorkflowBuilderWithHistory(
   // Track whether we're currently restoring from history (to avoid re-saving)
   const isRestoringRef = useRef(false);
 
+  // Track whether we're in undo/redo operation (to know when to restore)
+  const isUndoRedoRef = useRef(false);
+
   // Debounce timer ref
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -116,16 +119,17 @@ export function useWorkflowBuilderWithHistory(
     initialState: initialSnapshot,
     maxHistorySize,
     onChange: (snapshot) => {
-      // When undo/redo changes the state, restore it to the builder
+      // Only restore when doing undo/redo, not when adding new snapshots
+      if (!isUndoRedoRef.current) return;
+
       isRestoringRef.current = true;
-      loadConfig({
-        ...getConfig(),
-        nodes: deepClone(snapshot.nodes),
-        edges: deepClone(snapshot.edges),
-      });
-      // Reset after a microtask to ensure the state has been applied
+      // Use setNodes/setEdges directly to preserve selection
+      builder.setNodes(deepClone(snapshot.nodes) as any);
+      builder.setEdges(deepClone(snapshot.edges) as any);
+      // Reset flags after a microtask to ensure the state has been applied
       queueMicrotask(() => {
         isRestoringRef.current = false;
+        isUndoRedoRef.current = false;
       });
     },
   });
@@ -198,13 +202,17 @@ export function useWorkflowBuilderWithHistory(
       debounceTimerRef.current = null;
       takeSnapshot();
     }
+    // Set flag so onChange knows to restore
+    isUndoRedoRef.current = true;
     undoHistory();
   }, [undoHistory, takeSnapshot]);
 
   /**
-   * Redo - simply call redo from history
+   * Redo - restore the next state from history
    */
   const redo = useCallback(() => {
+    // Set flag so onChange knows to restore
+    isUndoRedoRef.current = true;
     redoHistory();
   }, [redoHistory]);
 
