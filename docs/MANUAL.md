@@ -49,6 +49,7 @@ A comprehensive guide to setting up and using XState Workflow for Frappe Framewo
   - [8.2 Multi-Level Approval](#82-multi-level-approval)
   - [8.3 Parallel Review Process](#83-parallel-review-process)
   - [8.4 Conditional Routing](#84-conditional-routing)
+  - [8.5 AI-Powered Invoice Matching](#85-ai-powered-invoice-matching-agentic-node)
 - [Part 9: End User Quick Reference](#part-9-end-user-quick-reference)
   - [9.1 Receiving Approval Tasks](#91-receiving-approval-tasks)
   - [9.2 Processing Tasks](#92-processing-tasks)
@@ -3340,6 +3341,363 @@ Route based on document category.
     "rejected": { "type": "final" }
   }
 }
+```
+
+---
+
+## 8.5 AI-Powered Invoice Matching (Agentic Node)
+
+Automated 2-way and 3-way matching for Purchase Invoices using an AI agent.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│            AI-POWERED INVOICE MATCHING WORKFLOW                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│                         ○ Start                                  │
+│                            │                                     │
+│                            ▼                                     │
+│                     ┌───────────┐                                │
+│                     │   Draft   │                                │
+│                     │  Invoice  │                                │
+│                     └─────┬─────┘                                │
+│                           │ SUBMIT_FOR_MATCHING                  │
+│                           ▼                                      │
+│                  ┌─────────────────┐                             │
+│                  │   🤖 AI Matcher │                             │
+│                  │   (Agentic)     │                             │
+│                  └────────┬────────┘                             │
+│         ┌─────────────────┼─────────────────┐                   │
+│         │                 │                 │                    │
+│      MATCHED          PARTIAL          MISMATCH                  │
+│         │                 │                 │                    │
+│         ▼                 ▼                 ▼                    │
+│  ┌───────────┐    ┌───────────┐    ┌───────────┐               │
+│  │ Approved  │◎   │◇ Confirm  │    │◇ Manual   │               │
+│  │ (Auto-pay)│    │  Receipt  │    │  Review   │               │
+│  └───────────┘    └─────┬─────┘    └─────┬─────┘               │
+│                         │                 │                      │
+│                    CONFIRMED          APPROVE                    │
+│                         │                 │                      │
+│                         └────────┬────────┘                      │
+│                                  ▼                               │
+│                           ┌───────────┐                          │
+│                           │ Approved  │◎                         │
+│                           └───────────┘                          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Matching Types
+
+| Type | Documents Compared | Checks |
+|------|-------------------|--------|
+| **2-way** | Invoice ↔ PO | Quantity, Rate, Amount |
+| **3-way** | Invoice ↔ PO ↔ Receipt | + Quantity Received |
+
+### Agent System Prompt
+
+```text
+You are a Purchase Invoice matching agent for accounts payable.
+
+Your task is to perform invoice matching:
+
+## 2-Way Match (Invoice vs Purchase Order)
+1. Read the Purchase Invoice details
+2. Find the linked Purchase Order(s) using the 'items' table
+3. Compare for each line item:
+   - Quantity invoiced vs quantity ordered
+   - Rate/price matches
+   - Amount = Qty × Rate
+
+## 3-Way Match (add Goods Receipt)
+4. Find Purchase Receipts linked to the same PO
+5. Verify quantity invoiced ≤ quantity received
+
+## Tolerance Rules
+- Price tolerance: ±2%
+- Quantity tolerance: exact match required
+- Amount tolerance: ±$10 or ±1%
+
+## Decision Criteria
+- MATCHED: All items within tolerance, 3-way complete
+- PARTIAL: 2-way matches but missing/incomplete receipts
+- MISMATCH: Any item outside tolerance
+- NEEDS_REVIEW: Cannot determine (missing PO, errors, etc.)
+
+Output your analysis and then state:
+DECISION: <matched|partial|mismatch|needs_review>
+
+Include a brief explanation of any variances found.
+```
+
+### Agentic Node Configuration
+
+```json
+{
+  "type": "agentic",
+  "label": "AI Invoice Matcher",
+  "agentType": "react",
+  "model": "gpt-4",
+  "enabledTools": [
+    { "name": "frappe_read", "enabled": true },
+    { "name": "frappe_search", "enabled": true },
+    { "name": "calculator", "enabled": true }
+  ],
+  "frappeAccess": "read_only",
+  "transitionMode": "decision",
+  "decisionRoutes": [
+    { "condition": "matched" },
+    { "condition": "partial" },
+    { "condition": "mismatch" },
+    { "condition": "needs_review" }
+  ],
+  "maxIterations": 15,
+  "timeoutSeconds": 120,
+  "retryOnFailure": true,
+  "maxRetries": 2
+}
+```
+
+### Full Workflow JSON
+
+```json
+{
+  "id": "purchase_invoice_matching",
+  "initial": "draft",
+  "states": {
+    "draft": {
+      "on": {
+        "SUBMIT_FOR_MATCHING": "ai_matching"
+      },
+      "meta": {
+        "domain_node": {
+          "type": "start",
+          "label": "Draft Invoice"
+        }
+      }
+    },
+
+    "ai_matching": {
+      "on": {
+        "DECISION_MATCHED": "approved",
+        "DECISION_PARTIAL": "partial_approval",
+        "DECISION_MISMATCH": "manual_review",
+        "DECISION_NEEDS_REVIEW": "manual_review",
+        "AGENT_FAILURE": "manual_review"
+      },
+      "meta": {
+        "domain_node": {
+          "type": "agentic",
+          "label": "AI Invoice Matcher",
+          "agentType": "react",
+          "systemPrompt": "You are a Purchase Invoice matching agent...",
+          "model": "gpt-4",
+          "enabledTools": [
+            { "name": "frappe_read", "enabled": true },
+            { "name": "frappe_search", "enabled": true },
+            { "name": "calculator", "enabled": true }
+          ],
+          "frappeAccess": "read_only",
+          "transitionMode": "decision",
+          "decisionRoutes": [
+            { "condition": "matched" },
+            { "condition": "partial" },
+            { "condition": "mismatch" },
+            { "condition": "needs_review" }
+          ],
+          "maxIterations": 15,
+          "timeoutSeconds": 120,
+          "retryOnFailure": true,
+          "maxRetries": 2
+        }
+      }
+    },
+
+    "partial_approval": {
+      "on": {
+        "RECEIPT_CONFIRMED": "approved",
+        "REJECT": "rejected"
+      },
+      "meta": {
+        "domain_node": {
+          "type": "approval",
+          "label": "Confirm Goods Receipt",
+          "resolver": {
+            "type": "role",
+            "role": "Stock Manager"
+          },
+          "available_actions": ["Receipt Confirmed", "Reject"],
+          "sla_hours": 24
+        }
+      }
+    },
+
+    "manual_review": {
+      "on": {
+        "APPROVE": "approved",
+        "REJECT": "rejected",
+        "RESUBMIT": "ai_matching"
+      },
+      "meta": {
+        "domain_node": {
+          "type": "approval",
+          "label": "Manual Review Required",
+          "resolver": {
+            "type": "role",
+            "role": "Accounts Payable Manager"
+          },
+          "available_actions": ["Approve", "Reject", "Resubmit"],
+          "sla_hours": 48,
+          "priority": "High"
+        }
+      }
+    },
+
+    "approved": {
+      "type": "final",
+      "meta": {
+        "domain_node": {
+          "type": "end",
+          "label": "Approved for Payment",
+          "final_status": "Approved"
+        }
+      }
+    },
+
+    "rejected": {
+      "type": "final",
+      "meta": {
+        "domain_node": {
+          "type": "end",
+          "label": "Rejected",
+          "final_status": "Rejected"
+        }
+      }
+    }
+  }
+}
+```
+
+### How the Agent Performs Matching
+
+**Step 1: Read the Invoice**
+```
+Agent: frappe_read("Purchase Invoice", "PINV-00001")
+→ Returns invoice with items, supplier, grand_total
+```
+
+**Step 2: Find Linked Purchase Orders**
+```
+Agent: frappe_search("Purchase Order Item",
+  filters: {"parent": ["in", ["PO-00045"]]})
+→ Returns ordered quantities and rates
+```
+
+**Step 3: Find Purchase Receipts (3-way)**
+```
+Agent: frappe_search("Purchase Receipt Item",
+  filters: {"purchase_order": "PO-00045"})
+→ Returns received quantities
+```
+
+**Step 4: Calculate Variances**
+```
+Agent uses calculator:
+  Price variance: ((45.00 - 44.50) / 44.50) * 100 = 1.12%
+  Amount check: 100 * 45.00 = 4500.00
+```
+
+**Step 5: Agent Output Example**
+```
+Based on my analysis of Purchase Invoice PINV-00001:
+
+**Invoice Details:**
+- Supplier: ABC Corp
+- Invoice Total: $5,250.00
+- Linked PO: PO-00045
+
+**Matching Results:**
+
+| Item     | Invoiced | PO Qty | Received | Rate Var | Status |
+|----------|----------|--------|----------|----------|--------|
+| Widget-A | 100      | 100    | 100      | 0%       | ✓      |
+| Widget-B | 50       | 50     | 50       | +1.5%    | ✓      |
+| Widget-C | 25       | 30     | 28       | 0%       | ✓      |
+
+**Analysis:**
+- All items have matching or acceptable quantities
+- Widget-B has 1.5% price variance (within 2% tolerance)
+- Widget-C: Invoiced 25, ordered 30, received 28 - acceptable
+- Total variance: -$50.00 (-0.9%) within tolerance
+
+**3-Way Match Status:** Complete
+- Purchase Order: PO-00045 ✓
+- Purchase Receipt: PR-00032 ✓
+
+DECISION: matched
+```
+
+### Testing the Workflow
+
+```python
+import frappe
+
+# Test the agent configuration
+result = frappe.call(
+    "xstate_workflow.xstate_workflow.api.workflow.test_agentic_node",
+    doctype="Purchase Invoice",
+    docname="PINV-00001",
+    agent_config={
+        "agentType": "react",
+        "systemPrompt": "You are a Purchase Invoice matching agent...",
+        "model": "gpt-4",
+        "enabledTools": [
+            {"name": "frappe_read", "enabled": True},
+            {"name": "frappe_search", "enabled": True},
+            {"name": "calculator", "enabled": True}
+        ],
+        "frappeAccess": "read_only",
+        "transitionMode": "decision",
+        "decisionRoutes": [
+            {"condition": "matched"},
+            {"condition": "partial"},
+            {"condition": "mismatch"},
+            {"condition": "needs_review"}
+        ]
+    }
+)
+
+print(f"Decision: {result['decision']}")
+print(f"Confidence: {result['confidence']}")
+print(f"Reasoning:\n{result['reasoning']}")
+```
+
+### Customization Options
+
+**Adjust Tolerances:**
+Modify the system prompt to change tolerance rules:
+```text
+## Tolerance Rules
+- Price tolerance: ±5%        # More lenient
+- Quantity tolerance: ±2%     # Allow small qty variance
+- Amount tolerance: ±$100     # Higher dollar threshold
+```
+
+**Add Additional Checks:**
+```text
+## Additional Validations
+- Verify supplier bank details haven't changed
+- Check for duplicate invoices (same PO, similar amount)
+- Validate tax calculations
+```
+
+**Handle Partial Receipts:**
+```text
+## Partial Receipt Handling
+- If invoice qty > received qty: MISMATCH
+- If invoice qty ≤ received qty: Allow (partial billing)
+- Flag if received qty < 90% of ordered: NEEDS_REVIEW
 ```
 
 ---
