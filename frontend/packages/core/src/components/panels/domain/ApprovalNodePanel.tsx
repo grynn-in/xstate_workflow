@@ -93,19 +93,21 @@ function ApprovalNodePanelComponent({
     });
   }, [data.availableActions, onDataChange]);
 
+  // Extract hierarchy doctype for dependency tracking
+  const hierarchyDoctype = data.resolver?.type === 'hierarchy_walk'
+    ? (data.resolver as { hierarchy_doctype?: string }).hierarchy_doctype
+    : undefined;
+
   // Fetch fields when hierarchy doctype changes
   useEffect(() => {
-    if (data.resolver?.type === 'hierarchy_walk' && onFetchDoctypeFields) {
-      const hierarchyDoctype = (data.resolver as { hierarchy_doctype?: string }).hierarchy_doctype;
-      if (hierarchyDoctype) {
-        onFetchDoctypeFields(hierarchyDoctype)
-          .then(setHierarchyDoctypeFields)
-          .catch(() => setHierarchyDoctypeFields([]));
-      } else {
-        setHierarchyDoctypeFields([]);
-      }
+    if (hierarchyDoctype && onFetchDoctypeFields) {
+      onFetchDoctypeFields(hierarchyDoctype)
+        .then(setHierarchyDoctypeFields)
+        .catch(() => setHierarchyDoctypeFields([]));
+    } else {
+      setHierarchyDoctypeFields([]);
     }
-  }, [data.resolver, onFetchDoctypeFields]);
+  }, [hierarchyDoctype, onFetchDoctypeFields]);
 
   // User link fields from doctype
   const userLinkFields = doctypeFields.filter(f =>
@@ -115,12 +117,26 @@ function ApprovalNodePanelComponent({
   // All link fields
   const linkFields = doctypeFields.filter(f => f.fieldtype === 'Link');
 
-  // Fields from hierarchy doctype that link to parent records
+  // Fields from hierarchy doctype that link to parent records (self-referential)
+  // For hierarchy walk, parent field should link back to the same doctype
+  const hierarchyParentFields = hierarchyDoctypeFields.filter(f =>
+    f.fieldtype === 'Link' && f.options === hierarchyDoctype
+  );
+
+  // All link fields from hierarchy doctype (fallback if no self-referential found)
   const hierarchyLinkFields = hierarchyDoctypeFields.filter(f => f.fieldtype === 'Link');
 
   // Fields from hierarchy doctype that link to User
   const hierarchyUserFields = hierarchyDoctypeFields.filter(f =>
     f.fieldtype === 'Link' && f.options === 'User'
+  );
+
+  // Use self-referential fields for parent, or fall back to all link fields
+  const parentFieldOptions = hierarchyParentFields.length > 0 ? hierarchyParentFields : hierarchyLinkFields;
+
+  // Boolean/Check fields from hierarchy doctype (for stop conditions)
+  const hierarchyBooleanFields = hierarchyDoctypeFields.filter(f =>
+    f.fieldtype === 'Check' || f.fieldtype === 'Data'
   );
 
   return (
@@ -254,87 +270,226 @@ function ApprovalNodePanelComponent({
       {/* Hierarchy Walk Config */}
       {data.resolver?.type === 'hierarchy_walk' && (
         <div className="xsw-panel-section">
-          <div className="xsw-panel-section-title">Hierarchy DocType</div>
-          <select
-            className="xsw-select"
-            value={(data.resolver as { hierarchy_doctype: string }).hierarchy_doctype || ''}
-            onChange={(e) => handleResolverConfigChange({ hierarchy_doctype: e.target.value })}
-          >
-            <option value="">Select doctype...</option>
-            {availableDoctypes.map(dt => (
-              <option key={dt} value={dt}>{dt}</option>
-            ))}
-          </select>
+          {/* Hierarchy Structure Section */}
+          <div className="xsw-panel-section-title">Hierarchy Structure</div>
+          <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', marginBottom: '12px' }}>
+            <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+              Hierarchy DocType
+            </label>
+            <select
+              className="xsw-select"
+              value={(data.resolver as { hierarchy_doctype: string }).hierarchy_doctype || ''}
+              onChange={(e) => handleResolverConfigChange({ hierarchy_doctype: e.target.value })}
+              style={{ marginBottom: '8px' }}
+            >
+              <option value="">Select doctype...</option>
+              {availableDoctypes.map(dt => (
+                <option key={dt} value={dt}>{dt}</option>
+              ))}
+            </select>
 
-          <div className="xsw-panel-section-title" style={{ marginTop: '12px' }}>Parent Field</div>
-          <select
-            className="xsw-select"
-            value={(data.resolver as { parent_field: string }).parent_field || ''}
-            onChange={(e) => handleResolverConfigChange({ parent_field: e.target.value })}
-            disabled={!hierarchyLinkFields.length}
-          >
-            <option value="">
-              {hierarchyLinkFields.length ? 'Select field...' : 'Select doctype first'}
-            </option>
-            {hierarchyLinkFields.map(field => (
-              <option key={field.fieldname} value={field.fieldname}>
-                {field.label} → {field.options}
-              </option>
-            ))}
-          </select>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                  Parent Field
+                </label>
+                <select
+                  className="xsw-select"
+                  value={(data.resolver as { parent_field: string }).parent_field || ''}
+                  onChange={(e) => handleResolverConfigChange({ parent_field: e.target.value })}
+                  disabled={!parentFieldOptions.length}
+                >
+                  <option value="">
+                    {parentFieldOptions.length ? 'Select...' : 'Select doctype first'}
+                  </option>
+                  {parentFieldOptions.map(field => (
+                    <option key={field.fieldname} value={field.fieldname}>
+                      {field.label} → {field.options}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                  User Field
+                </label>
+                <select
+                  className="xsw-select"
+                  value={(data.resolver as { user_field: string }).user_field || ''}
+                  onChange={(e) => handleResolverConfigChange({ user_field: e.target.value })}
+                  disabled={!hierarchyUserFields.length}
+                >
+                  <option value="">
+                    {hierarchyDoctypeFields.length
+                      ? (hierarchyUserFields.length ? 'Select...' : 'No User link fields')
+                      : 'Select doctype first'}
+                  </option>
+                  {hierarchyUserFields.map(field => (
+                    <option key={field.fieldname} value={field.fieldname}>
+                      {field.label} ({field.fieldname})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
 
-          <div className="xsw-panel-section-title" style={{ marginTop: '12px' }}>User Field</div>
-          <select
-            className="xsw-select"
-            value={(data.resolver as { user_field: string }).user_field || ''}
-            onChange={(e) => handleResolverConfigChange({ user_field: e.target.value })}
-            disabled={!hierarchyUserFields.length}
-          >
-            <option value="">
-              {hierarchyUserFields.length ? 'Select field...' : 'Select doctype first'}
-            </option>
-            {hierarchyUserFields.map(field => (
-              <option key={field.fieldname} value={field.fieldname}>
-                {field.label} ({field.fieldname})
-              </option>
-            ))}
-          </select>
+          {/* Walking Configuration Section */}
+          <div className="xsw-panel-section-title">Walking Configuration</div>
+          <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+              <div>
+                <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                  Start From
+                </label>
+                <select
+                  className="xsw-select"
+                  value={(data.resolver as { start_from: string }).start_from || 'owner'}
+                  onChange={(e) => handleResolverConfigChange({ start_from: e.target.value })}
+                >
+                  <option value="owner">Document Owner</option>
+                  <option value="document_field">Document Field</option>
+                  <option value="linked_doc">Linked Document</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                  Level Mode
+                </label>
+                <select
+                  className="xsw-select"
+                  value={(data.resolver as { level_mode: string }).level_mode || 'fixed'}
+                  onChange={(e) => handleResolverConfigChange({ level_mode: e.target.value })}
+                >
+                  <option value="fixed">Fixed Levels</option>
+                  <option value="until_condition">Until Condition</option>
+                  <option value="all_up_to">All Up To</option>
+                </select>
+              </div>
+            </div>
 
-          <div className="xsw-panel-section-title" style={{ marginTop: '12px' }}>Start From</div>
-          <select
-            className="xsw-select"
-            value={(data.resolver as { start_from: string }).start_from || 'owner'}
-            onChange={(e) => handleResolverConfigChange({ start_from: e.target.value })}
-          >
-            <option value="owner">Document Owner</option>
-            <option value="document_field">Document Field</option>
-            <option value="linked_doc">Linked Document</option>
-          </select>
+            {/* Start From: Document Field - show field selector */}
+            {(data.resolver as { start_from: string }).start_from === 'document_field' && (
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                  Start User Field
+                </label>
+                <select
+                  className="xsw-select"
+                  value={(data.resolver as { start_field?: string }).start_field || ''}
+                  onChange={(e) => handleResolverConfigChange({ start_field: e.target.value })}
+                >
+                  <option value="">Select user field...</option>
+                  {userLinkFields.map(field => (
+                    <option key={field.fieldname} value={field.fieldname}>
+                      {field.label} ({field.fieldname})
+                    </option>
+                  ))}
+                  <option value="owner">Document Owner</option>
+                </select>
+              </div>
+            )}
 
-          <div className="xsw-panel-section-title" style={{ marginTop: '12px' }}>Level Mode</div>
-          <select
-            className="xsw-select"
-            value={(data.resolver as { level_mode: string }).level_mode || 'fixed'}
-            onChange={(e) => handleResolverConfigChange({ level_mode: e.target.value })}
-          >
-            <option value="fixed">Fixed Levels Up</option>
-            <option value="until_condition">Until Condition Met</option>
-            <option value="all_up_to">All Up To N Levels</option>
-          </select>
+            {/* Start From: Linked Doc - show link field and user field */}
+            {(data.resolver as { start_from: string }).start_from === 'linked_doc' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                    Link Field
+                  </label>
+                  <select
+                    className="xsw-select"
+                    value={(data.resolver as { start_link_field?: string }).start_link_field || ''}
+                    onChange={(e) => handleResolverConfigChange({ start_link_field: e.target.value })}
+                  >
+                    <option value="">Select link field...</option>
+                    {linkFields.map(field => (
+                      <option key={field.fieldname} value={field.fieldname}>
+                        {field.label} → {field.options}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                    User Field on Linked
+                  </label>
+                  <input
+                    type="text"
+                    className="xsw-input"
+                    placeholder="e.g., owner, manager"
+                    value={(data.resolver as { start_user_field?: string }).start_user_field || ''}
+                    onChange={(e) => handleResolverConfigChange({ start_user_field: e.target.value })}
+                  />
+                </div>
+              </div>
+            )}
 
-          {(data.resolver as { level_mode: string }).level_mode === 'fixed' && (
-            <>
-              <div className="xsw-panel-section-title" style={{ marginTop: '12px' }}>Levels Up</div>
-              <input
-                type="number"
-                className="xsw-input"
-                min="1"
-                max="10"
-                value={(data.resolver as { levels_up?: number }).levels_up || 1}
-                onChange={(e) => handleResolverConfigChange({ levels_up: parseInt(e.target.value, 10) })}
-              />
-            </>
-          )}
+            {/* Level Mode: Fixed - show levels_up */}
+            {((data.resolver as { level_mode?: string }).level_mode || 'fixed') === 'fixed' && (
+              <div>
+                <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                  Levels Up
+                </label>
+                <input
+                  type="number"
+                  className="xsw-input"
+                  min="1"
+                  max="10"
+                  value={(data.resolver as { levels_up?: number }).levels_up || 1}
+                  onChange={(e) => handleResolverConfigChange({ levels_up: parseInt(e.target.value, 10) })}
+                  style={{ width: '80px' }}
+                />
+              </div>
+            )}
+
+            {/* Level Mode: All Up To - show max_levels */}
+            {(data.resolver as { level_mode?: string }).level_mode === 'all_up_to' && (
+              <div>
+                <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                  Max Levels
+                </label>
+                <input
+                  type="number"
+                  className="xsw-input"
+                  min="1"
+                  max="10"
+                  value={(data.resolver as { max_levels?: number }).max_levels || 5}
+                  onChange={(e) => handleResolverConfigChange({ max_levels: parseInt(e.target.value, 10) })}
+                  style={{ width: '80px' }}
+                />
+              </div>
+            )}
+
+            {/* Level Mode: Until Condition - show condition field */}
+            {(data.resolver as { level_mode?: string }).level_mode === 'until_condition' && (
+              <div>
+                <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>
+                  Stop When Field is True
+                </label>
+                <select
+                  className="xsw-select"
+                  value={(data.resolver as { stop_condition?: string }).stop_condition || ''}
+                  onChange={(e) => handleResolverConfigChange({ stop_condition: e.target.value })}
+                  disabled={!hierarchyBooleanFields.length}
+                >
+                  <option value="">
+                    {hierarchyDoctypeFields.length
+                      ? (hierarchyBooleanFields.length ? 'Select field...' : 'No Check/Data fields')
+                      : 'Select doctype first'}
+                  </option>
+                  {hierarchyBooleanFields.map(field => (
+                    <option key={field.fieldname} value={field.fieldname}>
+                      {field.label} ({field.fieldname})
+                    </option>
+                  ))}
+                </select>
+                <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
+                  Walking stops when this field is truthy (e.g., is_top_level = 1)
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
