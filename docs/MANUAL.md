@@ -1533,6 +1533,25 @@ Create a User Delegation record:
 | **Role Only** | Only users with the assigned role |
 | **Assigned or Role** | Assigned user OR role members |
 
+### DocTypes to Avoid
+
+**Do not attach workflows to internal system DocTypes.** These are auto-created by Frappe/ERPNext during other document operations and will cause submission failures:
+
+| DocType | Why to Avoid |
+|---------|--------------|
+| **GL Entry** | Auto-created when submitting invoices, journals, etc. |
+| **Stock Ledger Entry** | Auto-created during stock transactions |
+| **Payment Ledger Entry** | Auto-created during payment processing |
+| **Repost Item Valuation** | System document for stock reposting |
+| **Communication** | Auto-created for emails, comments |
+| **Version** | Auto-created for document versioning |
+| **Activity Log** | System logging document |
+
+If you accidentally attach a workflow to these DocTypes, you'll see errors like:
+> "Cannot submit GL Entry: Workflow approval required"
+
+**Fix:** Go to State Machine list, find workflows attached to internal DocTypes, and either delete them or set `Is Active = No`.
+
 ---
 
 ## 5.2 Document Event Hooks
