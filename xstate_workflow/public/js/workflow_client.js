@@ -76,6 +76,21 @@
     },
 
     /**
+     * Cancel a running workflow
+     * @param {string} doctype - DocType name
+     * @param {string} docname - Document name
+     * @param {string} reason - Optional reason for cancellation
+     * @returns {Promise}
+     */
+    cancel_workflow: function (doctype, docname, reason) {
+      return frappe.xcall('xstate_workflow.api.workflow.cancel_workflow', {
+        doctype: doctype,
+        docname: docname,
+        reason: reason || null
+      });
+    },
+
+    /**
      * Open workflow builder in new tab
      * @param {string} machine_id - Optional machine ID to edit
      */
@@ -113,6 +128,11 @@
 
     // Skip for new/unsaved documents
     if (frm.doc.__islocal) return;
+
+    // Clean up any existing workflow elements first
+    frm.$wrapper.find('.xstate-workflow-section').remove();
+    $('.xstate-workflow-tab').remove();
+    $('.xstate-workflow-pane').remove();
 
     // Mark request as pending to prevent duplicate calls
     frm.workflow_request_pending = true;
@@ -294,12 +314,12 @@
     var current_state = (state.current_state || '').toLowerCase();
     var status = (state.status || '').toLowerCase();
 
-    // Don't interfere with idle/draft state - workflow hasn't started yet
-    if (status === 'idle' || current_state === 'draft') {
+    // Don't interfere with idle/draft/cancelled state - workflow not active
+    if (status === 'idle' || status === 'cancelled' || current_state === 'draft') {
       return;
     }
 
-    var approved_states = ['approved', 'completed', 'done', 'accepted'];
+    var approved_states = ['approved', 'completed', 'done', 'accepted', 'final'];
 
     // Determine if submit should be allowed
     var allow_submit = false;
@@ -327,8 +347,8 @@
     var edit_mode = state.edit_restriction_mode || 'None';
     var status = (state.status || '').toLowerCase();
 
-    // No restrictions if mode is None or workflow is idle/final
-    if (edit_mode === 'None' || status === 'idle' || status === 'final') {
+    // No restrictions if mode is None or workflow is idle/final/cancelled
+    if (edit_mode === 'None' || status === 'idle' || status === 'final' || status === 'cancelled') {
       return;
     }
 
@@ -447,6 +467,10 @@
     var state_color = get_state_color(state.current_state);
     var state_display = state.current_state.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
 
+    // Determine which buttons to show
+    var show_cancel_btn = state.status !== 'cancelled' && state.status !== 'final';
+    var show_restart_btn = state.status === 'cancelled';
+
     var paneHtml = '<div class="tab-pane xstate-workflow-pane" id="' + tabId + '" style="padding: 20px;">' +
       '<div class="workflow-tab-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #e5e5e5;">' +
         '<div>' +
@@ -454,10 +478,18 @@
           '<span class="indicator-pill ' + state_color + '" style="font-size: 14px; padding: 6px 14px;">' + state_display + '</span>' +
           '<span class="text-muted" style="margin-left: 10px; font-size: 13px;">(' + (state.status || 'active') + ')</span>' +
         '</div>' +
-        (viewer_url ? '<a href="' + viewer_url + '" target="_blank" class="btn btn-sm btn-primary">' +
-          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>' +
-          __('View Diagram') +
-        '</a>' : '') +
+        '<div style="display: flex; gap: 8px;">' +
+          (viewer_url ? '<a href="' + viewer_url + '" target="_blank" class="btn btn-sm btn-primary">' +
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>' +
+            __('View Diagram') +
+          '</a>' : '') +
+          (show_restart_btn ? '<button class="btn btn-sm btn-success restart-workflow-btn">' +
+            __('Restart Workflow') +
+          '</button>' : '') +
+          (show_cancel_btn ? '<button class="btn btn-sm btn-danger cancel-workflow-btn">' +
+            __('Cancel Workflow') +
+          '</button>' : '') +
+        '</div>' +
       '</div>' +
       '<div class="workflow-actions-section" style="margin-bottom: 25px;">' +
         '<h5 style="margin-bottom: 12px; color: #374151; font-weight: 600;">' + __('Available Actions') + '</h5>' +
@@ -480,7 +512,16 @@
     $tabContent.append(paneHtml);
 
     frm.workflow_tab_added = true;
-    console.log('XState Workflow: Tab added to form');
+
+    // Bind Cancel Workflow button
+    $('#' + tabId).find('.cancel-workflow-btn').on('click', function() {
+      handle_cancel_workflow(frm);
+    });
+
+    // Bind Restart Workflow button
+    $('#' + tabId).find('.restart-workflow-btn').on('click', function() {
+      handle_restart_workflow(frm);
+    });
 
     // Render action buttons
     render_workflow_actions_in_tab(frm, state, tabId);
@@ -490,11 +531,107 @@
   }
 
   /**
+   * Handle cancel workflow button click
+   */
+  function handle_cancel_workflow(frm) {
+    var d = new frappe.ui.Dialog({
+      title: __('Cancel Workflow'),
+      fields: [
+        {
+          fieldname: 'info',
+          fieldtype: 'HTML',
+          options: '<p class="text-muted">' + __('This will cancel all pending approval tasks. You can restart the workflow later.') + '</p>'
+        },
+        {
+          fieldname: 'reason',
+          fieldtype: 'Small Text',
+          label: __('Reason (optional)')
+        }
+      ],
+      primary_action_label: __('Cancel Workflow'),
+      primary_action: function(values) {
+        d.hide();
+        frappe.dom.freeze(__('Cancelling workflow...'));
+
+        frappe.xstate_workflow.cancel_workflow(frm.doc.doctype, frm.doc.name, values.reason)
+          .then(function(result) {
+            frappe.dom.unfreeze();
+            if (result.success) {
+              frappe.show_alert({
+                message: result.message || __('Workflow cancelled successfully'),
+                indicator: 'green'
+              }, 3);
+              frm.workflow_section_added = false;
+              frm.reload_doc();
+            } else {
+              frappe.msgprint({
+                title: __('Error'),
+                message: result.message || __('Failed to cancel workflow'),
+                indicator: 'red'
+              });
+            }
+          })
+          .catch(function(err) {
+            frappe.dom.unfreeze();
+            frappe.msgprint({
+              title: __('Error'),
+              message: err.message || __('Failed to cancel workflow'),
+              indicator: 'red'
+            });
+          });
+      }
+    });
+
+    d.show();
+  }
+
+  /**
+   * Handle restart workflow button click
+   */
+  function handle_restart_workflow(frm) {
+    frappe.dom.freeze(__('Restarting workflow...'));
+
+    frappe.xstate_workflow.start_workflow(frm.doc.doctype, frm.doc.name)
+      .then(function(result) {
+        frappe.dom.unfreeze();
+        if (result.success) {
+          frappe.show_alert({
+            message: result.message || __('Workflow restarted successfully'),
+            indicator: 'green'
+          }, 3);
+          frm.workflow_section_added = false;
+          frm.reload_doc();
+        } else {
+          frappe.msgprint({
+            title: __('Error'),
+            message: result.message || __('Failed to restart workflow'),
+            indicator: 'red'
+          });
+        }
+      })
+      .catch(function(err) {
+        frappe.dom.unfreeze();
+        frappe.msgprint({
+          title: __('Error'),
+          message: err.message || __('Failed to restart workflow'),
+          indicator: 'red'
+        });
+      });
+  }
+
+  /**
    * Fallback when tabs don't exist - add as section at bottom
    */
   function add_workflow_section_fallback(frm, state, viewer_url) {
+    // Remove existing section if any
+    frm.$wrapper.find('.xstate-workflow-section').remove();
+
     var state_color = get_state_color(state.current_state);
     var state_display = state.current_state.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+
+    // Determine which buttons to show
+    var show_cancel_btn = state.status !== 'cancelled' && state.status !== 'final';
+    var show_restart_btn = state.status === 'cancelled';
 
     var html = '<div class="xstate-workflow-section" style="margin: 20px 15px; padding: 20px; background: white; border: 1px solid #e5e5e5; border-radius: 8px;">' +
       '<h5 style="margin: 0 0 15px 0; font-weight: 600; color: #374151;">⚡ Workflow</h5>' +
@@ -503,12 +640,30 @@
           '<span class="indicator-pill ' + state_color + '">' + state_display + '</span>' +
           '<span class="text-muted" style="font-size: 12px;">Status: ' + (state.status || 'active') + '</span>' +
         '</div>' +
-        (viewer_url ? '<a href="' + viewer_url + '" target="_blank" class="btn btn-xs btn-default">View Diagram</a>' : '') +
+        '<div style="display: flex; gap: 8px;">' +
+          (viewer_url ? '<a href="' + viewer_url + '" target="_blank" class="btn btn-xs btn-default">View Diagram</a>' : '') +
+          (show_restart_btn ? '<button class="btn btn-xs btn-success restart-workflow-btn">' +
+            __('Restart Workflow') +
+          '</button>' : '') +
+          (show_cancel_btn ? '<button class="btn btn-xs btn-danger cancel-workflow-btn">' +
+            __('Cancel Workflow') +
+          '</button>' : '') +
+        '</div>' +
       '</div>' +
     '</div>';
 
     frm.$wrapper.find('.form-layout, .form-page').first().append(html);
     frm.workflow_tab_added = true;
+
+    // Bind Cancel Workflow button
+    frm.$wrapper.find('.xstate-workflow-section .cancel-workflow-btn').on('click', function() {
+      handle_cancel_workflow(frm);
+    });
+
+    // Bind Restart Workflow button
+    frm.$wrapper.find('.xstate-workflow-section .restart-workflow-btn').on('click', function() {
+      handle_restart_workflow(frm);
+    });
   }
 
   /**
@@ -598,6 +753,10 @@
       '?doctype=' + encodeURIComponent(frm.doc.doctype) +
       '&docname=' + encodeURIComponent(frm.doc.name) : '';
 
+    // Determine which buttons to show
+    var show_cancel_btn = state.status !== 'cancelled' && state.status !== 'final';
+    var show_restart_btn = state.status === 'cancelled';
+
     var html = '<div class="workflow-tab-content" style="padding: 20px;">' +
       // Header with state and diagram link
       '<div class="workflow-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #e5e5e5;">' +
@@ -608,10 +767,18 @@
           '</span>' +
           '<span class="workflow-status-label" style="margin-left: 10px; color: #6b7280; font-size: 13px;">(' + (state.status || 'active') + ')</span>' +
         '</div>' +
-        (viewer_url ? '<a href="' + viewer_url + '" target="_blank" class="btn btn-primary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">' +
-          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>' +
-          __('View Diagram') +
-        '</a>' : '') +
+        '<div style="display: flex; gap: 8px; align-items: center;">' +
+          (viewer_url ? '<a href="' + viewer_url + '" target="_blank" class="btn btn-primary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">' +
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>' +
+            __('View Diagram') +
+          '</a>' : '') +
+          (show_restart_btn ? '<button class="btn btn-success btn-sm restart-workflow-btn">' +
+            __('Restart Workflow') +
+          '</button>' : '') +
+          (show_cancel_btn ? '<button class="btn btn-danger btn-sm cancel-workflow-btn">' +
+            __('Cancel Workflow') +
+          '</button>' : '') +
+        '</div>' +
       '</div>' +
 
       // Workflow Actions
@@ -651,6 +818,16 @@
     frm.workflow_tab_pane.find('.workflow-action-btn').on('click', function() {
       var event = $(this).data('event');
       handle_workflow_action(frm, event);
+    });
+
+    // Bind Cancel Workflow button
+    frm.workflow_tab_pane.find('.cancel-workflow-btn').on('click', function() {
+      handle_cancel_workflow(frm);
+    });
+
+    // Bind Restart Workflow button
+    frm.workflow_tab_pane.find('.restart-workflow-btn').on('click', function() {
+      handle_restart_workflow(frm);
     });
   }
 
@@ -978,6 +1155,8 @@
     }
 
     var html = '<div class="approval-tasks-section">';
+    var user = frappe.session.user;
+    var user_roles = frappe.user_roles || [];
 
     tasks.forEach(function(task) {
       var actions_html = '';
@@ -986,6 +1165,18 @@
       // Check if current user can action this task
       var can_action = task.can_action;
 
+      // Check if this is a role-based task that can be claimed
+      var is_role_based = task.assigned_role && !task.assigned_to;
+      var can_claim = is_role_based && user_roles.includes(task.assigned_role);
+
+      // Show Claim button for role-based tasks not yet claimed
+      if (can_claim) {
+        actions_html += '<button class="btn btn-sm btn-primary approval-action-btn" ' +
+          'data-task="' + task.name + '" data-action="CLAIM">' +
+          __('Claim') + '</button> ';
+      }
+
+      // Show action buttons (Approve/Reject/etc) if user can action
       if (can_action) {
         available_actions.forEach(function(action) {
           var btn_class = action.toLowerCase() === 'approve' ? 'btn-success' :
@@ -994,6 +1185,16 @@
             'data-task="' + task.name + '" data-action="' + action + '">' +
             action + '</button> ';
         });
+
+        // Reassign button
+        actions_html += '<button class="btn btn-sm btn-secondary approval-action-btn" ' +
+          'data-task="' + task.name + '" data-action="REASSIGN">' +
+          __('Reassign') + '</button> ';
+
+        // Escalate button
+        actions_html += '<button class="btn btn-sm btn-warning approval-action-btn" ' +
+          'data-task="' + task.name + '" data-action="ESCALATE">' +
+          __('Escalate') + '</button> ';
       }
 
       html += '<div class="approval-task-item" style="padding: 8px 0; border-bottom: 1px solid #eee;">' +
@@ -1001,7 +1202,7 @@
         '<div>' +
         '<strong>' + (task.node_label || task.node_id) + '</strong>' +
         '<div class="text-muted small">' +
-        (task.assigned_to ? __('Assigned to: {0}', [task.assigned_to]) :
+        (task.assigned_to ? __('Assigned to: {0}', [task.assigned_to_name || task.assigned_to]) :
          task.assigned_role ? __('Assigned to role: {0}', [task.assigned_role]) : '') +
         '</div>' +
         '</div>' +
@@ -1020,6 +1221,19 @@
    * Handle approval action from form
    */
   function handle_approval_action(frm, taskName, action) {
+    // Handle special actions
+    if (action === 'CLAIM') {
+      handle_claim_action(frm, taskName);
+      return;
+    } else if (action === 'REASSIGN') {
+      handle_reassign_action(frm, taskName);
+      return;
+    } else if (action === 'ESCALATE') {
+      handle_escalate_action(frm, taskName);
+      return;
+    }
+
+    // Standard approval/reject action
     var d = new frappe.ui.Dialog({
       title: action + ' - ' + __('Approval Task'),
       fields: [
@@ -1050,6 +1264,149 @@
           frappe.msgprint({
             title: __('Error'),
             message: err.message || __('Failed to complete task'),
+            indicator: 'red'
+          });
+        });
+      }
+    });
+
+    d.show();
+  }
+
+  /**
+   * Handle claim action for role-based tasks
+   */
+  function handle_claim_action(frm, taskName) {
+    frappe.dom.freeze(__('Claiming task...'));
+
+    frappe.xcall('xstate_workflow.api.approval.claim_task', {
+      task_name: taskName
+    }).then(function(result) {
+      frappe.dom.unfreeze();
+      if (result.success) {
+        frappe.show_alert({
+          message: __('Task claimed successfully'),
+          indicator: 'green'
+        }, 3);
+        frm.reload_doc();
+      } else {
+        frappe.msgprint({
+          title: __('Error'),
+          message: result.message || __('Failed to claim task'),
+          indicator: 'red'
+        });
+      }
+    }).catch(function(err) {
+      frappe.dom.unfreeze();
+      frappe.msgprint({
+        title: __('Error'),
+        message: err.message || __('Failed to claim task'),
+        indicator: 'red'
+      });
+    });
+  }
+
+  /**
+   * Handle reassign action
+   */
+  function handle_reassign_action(frm, taskName) {
+    var d = new frappe.ui.Dialog({
+      title: __('Reassign Task'),
+      fields: [
+        {
+          fieldname: 'new_user',
+          fieldtype: 'Link',
+          label: __('Reassign to'),
+          options: 'User',
+          reqd: 1,
+          get_query: function() {
+            return {
+              filters: { enabled: 1, user_type: 'System User' }
+            };
+          }
+        },
+        {
+          fieldname: 'reason',
+          fieldtype: 'Small Text',
+          label: __('Reason (optional)')
+        }
+      ],
+      primary_action_label: __('Reassign'),
+      primary_action: function(values) {
+        d.hide();
+        frappe.dom.freeze(__('Reassigning...'));
+
+        frappe.xcall('xstate_workflow.api.approval.reassign_task', {
+          task_name: taskName,
+          new_user: values.new_user,
+          reason: values.reason || ''
+        }).then(function(result) {
+          frappe.dom.unfreeze();
+          frappe.show_alert({
+            message: __('Task reassigned successfully'),
+            indicator: 'green'
+          }, 3);
+          frm.reload_doc();
+        }).catch(function(err) {
+          frappe.dom.unfreeze();
+          frappe.msgprint({
+            title: __('Error'),
+            message: err.message || __('Failed to reassign task'),
+            indicator: 'red'
+          });
+        });
+      }
+    });
+
+    d.show();
+  }
+
+  /**
+   * Handle escalate action
+   */
+  function handle_escalate_action(frm, taskName) {
+    var d = new frappe.ui.Dialog({
+      title: __('Escalate Task'),
+      fields: [
+        {
+          fieldname: 'escalate_to',
+          fieldtype: 'Link',
+          label: __('Escalate to (optional)'),
+          options: 'User',
+          description: __('Leave empty for automatic escalation based on hierarchy'),
+          get_query: function() {
+            return {
+              filters: { enabled: 1, user_type: 'System User' }
+            };
+          }
+        },
+        {
+          fieldname: 'reason',
+          fieldtype: 'Small Text',
+          label: __('Reason (optional)')
+        }
+      ],
+      primary_action_label: __('Escalate'),
+      primary_action: function(values) {
+        d.hide();
+        frappe.dom.freeze(__('Escalating...'));
+
+        frappe.xcall('xstate_workflow.api.approval.escalate_task', {
+          task_name: taskName,
+          escalate_to: values.escalate_to || null,
+          reason: values.reason || ''
+        }).then(function(result) {
+          frappe.dom.unfreeze();
+          frappe.show_alert({
+            message: __('Task escalated successfully'),
+            indicator: 'green'
+          }, 3);
+          frm.reload_doc();
+        }).catch(function(err) {
+          frappe.dom.unfreeze();
+          frappe.msgprint({
+            title: __('Error'),
+            message: err.message || __('Failed to escalate task'),
             indicator: 'red'
           });
         });
@@ -1189,55 +1546,107 @@
 
   // Track last checked form to avoid duplicate checks
   var last_checked_doc = null;
-  var poll_count = 0;
 
-  // Check for workflow section periodically
-  function check_workflow_section() {
-    poll_count++;
+  // Add workflow section to form if applicable
+  function try_add_workflow_section(frm) {
+    if (!frm || !frm.doc || frm.doc.__islocal) return;
 
-    // Log every 10th poll to show it's running
-    if (poll_count % 10 === 1) {
-      console.log('XState Workflow: Poll #' + poll_count,
-        'cur_frm:', typeof cur_frm !== 'undefined' ? (cur_frm?.doc?.doctype || 'no doc') : 'undefined',
-        'dashboard:', $('.form-dashboard').length);
-    }
-
-    if (typeof cur_frm === 'undefined' || !cur_frm || !cur_frm.doc) return;
-    if (cur_frm.doc.__islocal) return;
-
-    var doc_key = cur_frm.doc.doctype + ':' + cur_frm.doc.name;
+    var doc_key = frm.doc.doctype + ':' + frm.doc.name;
 
     // If document changed, reset the workflow section flag and remove old tab
     if (last_checked_doc && last_checked_doc !== doc_key) {
-      // Remove old workflow tab from previous document
       $('.xstate-workflow-tab').remove();
       $('.xstate-workflow-pane').remove();
-      cur_frm.workflow_section_added = false;
-      cur_frm.workflow_submit_blocked_msg = false;
+      frm.workflow_section_added = false;
+      frm.workflow_submit_blocked_msg = false;
     }
 
-    if (last_checked_doc === doc_key && cur_frm.workflow_section_added) return;
+    if (last_checked_doc === doc_key && frm.workflow_section_added) return;
 
     var attached_doctypes = frappe.boot.xstate_workflow?.attached_doctypes || [];
-
-    console.log('XState Workflow: Checking', cur_frm.doc.doctype, 'against', attached_doctypes);
-
-    if (!attached_doctypes.includes(cur_frm.doc.doctype)) return;
+    if (!attached_doctypes.includes(frm.doc.doctype)) return;
 
     // Check if form-dashboard exists and section not yet added
-    if ($('.form-dashboard').length && !cur_frm.workflow_section_added) {
-      console.log('XState Workflow: Adding section to', cur_frm.doc.doctype, cur_frm.doc.name);
+    if ($('.form-dashboard').length && !frm.workflow_section_added) {
       last_checked_doc = doc_key;
-      add_workflow_section(cur_frm);
+      add_workflow_section(frm);
     }
   }
 
-  // Poll every 500ms
-  setInterval(check_workflow_section, 500);
-  console.log('XState Workflow: Polling started');
+  // Register form hooks for each attached doctype (event-driven, no polling)
+  function register_workflow_hooks() {
+    var attached_doctypes = frappe.boot.xstate_workflow?.attached_doctypes || [];
 
-  // Also check on page changes
-  $(document).on('page-change', check_workflow_section);
+    attached_doctypes.forEach(function(doctype) {
+      // Use frappe.ui.form.on to hook into form refresh
+      frappe.ui.form.on(doctype, {
+        refresh: function(frm) {
+          try_add_workflow_section(frm);
+        }
+      });
+    });
+
+    // Also check current form immediately (in case it's already loaded)
+    setTimeout(function() {
+      if (typeof cur_frm !== 'undefined' && cur_frm && cur_frm.doc) {
+        try_add_workflow_section(cur_frm);
+      }
+    }, 100);
+  }
+
+  // Initialize hooks when boot data is available
+  if (frappe.boot.xstate_workflow?.attached_doctypes) {
+    register_workflow_hooks();
+  }
+
+  // Fallback: check on page changes for edge cases
+  $(document).on('page-change', function() {
+    setTimeout(function() {
+      if (typeof cur_frm !== 'undefined' && cur_frm) {
+        try_add_workflow_section(cur_frm);
+      }
+    }, 200);
+  });
+
+  // Additional fallback: use frappe.after_ajax for reliable form detection
+  if (typeof frappe.after_ajax === 'function') {
+    frappe.after_ajax(function() {
+      if (typeof cur_frm !== 'undefined' && cur_frm && cur_frm.doc) {
+        try_add_workflow_section(cur_frm);
+      }
+    });
+  }
+
+  // Final fallback: document ready with delay
+  $(document).ready(function() {
+    setTimeout(function() {
+      if (typeof cur_frm !== 'undefined' && cur_frm && cur_frm.doc) {
+        try_add_workflow_section(cur_frm);
+      }
+    }, 500);
+  });
+
+  // Minimal polling fallback - stops once workflow section is added
+  var poll_interval = null;
+  function start_fallback_polling() {
+    if (poll_interval) return;
+
+    poll_interval = setInterval(function() {
+      if (typeof cur_frm !== 'undefined' && cur_frm && cur_frm.doc && !cur_frm.doc.__islocal) {
+        var attached = frappe.boot.xstate_workflow?.attached_doctypes || [];
+        if (attached.includes(cur_frm.doc.doctype)) {
+          try_add_workflow_section(cur_frm);
+          // Stop polling once section is added
+          if (cur_frm.workflow_section_added) {
+            clearInterval(poll_interval);
+            poll_interval = null;
+          }
+        }
+      }
+    }, 2000); // Every 2 seconds
+  }
+
+  start_fallback_polling();
 
   // Listen for realtime workflow updates
   frappe.realtime.on('workflow_transition', function (data) {

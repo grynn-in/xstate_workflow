@@ -246,8 +246,8 @@ def _get_edit_permission_info(instance, edit_restriction_mode: str, user: str) -
     if edit_restriction_mode == "None" or not instance:
         return result
 
-    # No restrictions for idle or final workflows
-    if instance.status in ("idle", "final"):
+    # No restrictions for idle, final, or cancelled workflows
+    if instance.status in ("idle", "final", "cancelled"):
         return result
 
     # Get current pending approval task
@@ -1196,6 +1196,14 @@ def get_or_create_instance(doctype: str, docname: str) -> str:
 
                 # Also handle domain node entry (create approval tasks etc)
                 handle_domain_node_entry(instance, initial_state, state_config, ref_doc)
+
+                # Check for "always" transitions on initial state (auto-transition)
+                if state_config.get("always"):
+                    # Execute always transition - this will recursively handle chained always transitions
+                    try:
+                        execute_transition(instance.name, "xstate.always", {})
+                    except Exception as e:
+                        frappe.log_error(f"Failed to execute always transition from initial state: {e}")
     except Exception as e:
         frappe.log_error(f"Failed to execute initial state entry actions: {e}")
 
@@ -1292,6 +1300,85 @@ def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_
             frappe.log_error(f"Import error creating approval task: {e}")
         except Exception as e:
             frappe.log_error(f"Failed to create approval task: {e}")
+
+    if node_type == "parallel_approval":
+        # Create approval tasks for each approver in parallel approval
+        try:
+            from xstate_workflow.approval.task_manager import create_approval_task
+            from xstate_workflow.resolvers import resolve_assignment
+
+            approvers = domain_node.get("approvers", [])
+            sla_hours = domain_node.get("sla_hours")
+            priority = domain_node.get("priority", "Medium")
+            tenant = instance.tenant if hasattr(instance, "tenant") else None
+
+            created_tasks = []
+            for approver in approvers:
+                approver_id = approver.get("id", "")
+                approver_label = approver.get("label", approver_id)
+                resolver_config = approver.get("resolver", {})
+
+                # Skip if no resolver config
+                if not resolver_config or not resolver_config.get("type"):
+                    frappe.log_error(f"No resolver config for approver {approver_id}")
+                    continue
+
+                try:
+                    # Resolve assignees for this approver
+                    assignees = resolve_assignment(ref_doc, resolver_config)
+
+                    if not assignees:
+                        frappe.log_error(f"No assignees resolved for approver {approver_id}")
+                        continue
+
+                    # Get assigned_role for role-based assignments
+                    assigned_role = None
+                    if resolver_config.get("type") == "role":
+                        assigned_role = resolver_config.get("role")
+
+                    # Create task for this approver region
+                    # Use combined node_id format: parallel_state.approver_id.pending
+                    node_id = f"{state_name}.{approver_id}.pending"
+
+                    task = create_approval_task(
+                        workflow_instance=instance.name,
+                        node_id=node_id,
+                        node_label=approver_label,
+                        assignees=assignees,
+                        available_actions=["Approve", "Reject"],
+                        sla_hours=sla_hours,
+                        priority=priority,
+                        tenant=tenant,
+                        assigned_role=assigned_role
+                    )
+                    created_tasks.append(approver_label)
+
+                except Exception as e:
+                    frappe.log_error(f"Failed to create task for approver {approver_id}: {e}")
+
+            if created_tasks:
+                # Initialize parallel states to track each approver region
+                parallel_states = {}
+                for approver in approvers:
+                    approver_id = approver.get("id", "")
+                    region_path = f"{state_name}.{approver_id}"
+                    parallel_states[region_path] = "pending"
+
+                # Reload instance to avoid timestamp mismatch, then save
+                instance.reload()
+                instance.set_parallel_states(parallel_states)
+                instance.save(ignore_permissions=True)
+
+                frappe.msgprint(
+                    _("Parallel approval tasks created: {0}").format(", ".join(created_tasks)),
+                    indicator="blue",
+                    alert=True
+                )
+
+        except ImportError as e:
+            frappe.log_error(f"Import error creating parallel approval tasks: {e}")
+        except Exception as e:
+            frappe.log_error(f"Failed to create parallel approval tasks: {e}")
 
     if node_type == "agentic":
         # Start AI agent execution
@@ -1430,6 +1517,9 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
 
                 # Check if all regions are complete
                 if check_parallel_completion(instance, state_config):
+                    instance.save(ignore_permissions=True)
+                    frappe.db.commit()
+
                     # Handle onDone for parallel state
                     if state_config.get("onDone"):
                         on_done = state_config["onDone"]
@@ -1437,6 +1527,36 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
                         if done_target:
                             # Transition out of parallel state
                             return execute_transition(instance_name, "xstate.done.state", input_data)
+
+                    # Check for PARALLEL_APPROVED/PARALLEL_REJECTED events
+                    # Determine outcome based on region final states
+                    parallel_states = instance.get_parallel_states()
+                    all_approved = True
+                    any_rejected = False
+
+                    for region_name, region_config in state_config.get("states", {}).items():
+                        region_path = f"{current_state}.{region_name}"
+                        region_state = parallel_states.get(region_path)
+                        if region_state == "rejected":
+                            any_rejected = True
+                            all_approved = False
+                        elif region_state != "approved":
+                            all_approved = False
+
+                    # Trigger appropriate completion event
+                    if any_rejected and state_config.get("on", {}).get("PARALLEL_REJECTED"):
+                        return execute_transition(instance_name, "PARALLEL_REJECTED", input_data)
+                    elif all_approved and state_config.get("on", {}).get("PARALLEL_APPROVED"):
+                        return execute_transition(instance_name, "PARALLEL_APPROVED", input_data)
+
+                    return {
+                        "success": True,
+                        "previous_state": current_state,
+                        "new_state": current_state,
+                        "context": context,
+                        "is_final": False,
+                        "parallel_complete": True
+                    }
 
                 instance.save(ignore_permissions=True)
                 frappe.db.commit()
@@ -1741,7 +1861,9 @@ def extract_visual_guards(builder_config: dict, ref_doc) -> dict:
     """
     guards = {}
     edges = builder_config.get("edges", [])
+    nodes = builder_config.get("nodes", [])
 
+    # Extract guards from edges (legacy approach)
     for edge in edges:
         edge_data = edge.get("data", {})
         guard_config = edge_data.get("guard")
@@ -1765,6 +1887,41 @@ def extract_visual_guards(builder_config: dict, ref_doc) -> dict:
             guards[guard_name or f"guard_{edge['id']}"] = create_role_guard(guard_config)
 
         # Note: "python" type guards are handled by the logic module
+
+    # Extract guards from threshold gate nodes
+    for node in nodes:
+        node_type = node.get("type")
+        if node_type != "threshold_gate":
+            continue
+
+        node_data = node.get("data", {})
+        check_mode = node_data.get("checkMode", "simple")
+
+        if check_mode == "simple":
+            threshold = node_data.get("threshold")
+            if threshold:
+                field = threshold.get("field", "")
+                operator = threshold.get("operator", "")
+                value = threshold.get("value", "")
+                guard_name = f"threshold_{field}_{operator}_{value}"
+                guard_config = {
+                    "type": "simple",
+                    "field": field,
+                    "operator": operator,
+                    "value": value,
+                }
+                guards[guard_name] = create_simple_guard(guard_config, ref_doc)
+
+        elif check_mode == "compound":
+            conditions = node_data.get("conditions", [])
+            logic = node_data.get("conditionLogic", "and")
+            guard_name = f"compound_check_{logic}_{len(conditions)}"
+            guard_config = {
+                "type": "compound",
+                "operator": logic,
+                "conditions": conditions,
+            }
+            guards[guard_name] = create_compound_guard(guard_config, ref_doc)
 
     return guards
 
@@ -1952,6 +2109,18 @@ def evaluate_operator(field_value, operator: str, compare_value) -> bool:
     if operator == "is_not_set":
         return field_value is None or field_value == ""
 
+    # Normalize operator aliases (gt -> >, gte -> >=, lt -> <, lte -> <=)
+    operator_aliases = {
+        "gt": ">",
+        "gte": ">=",
+        "lt": "<",
+        "lte": "<=",
+        "eq": "==",
+        "ne": "!=",
+        "neq": "!=",
+    }
+    operator = operator_aliases.get(operator, operator)
+
     # Type coercion for numeric comparisons
     if operator in (">", "<", ">=", "<="):
         try:
@@ -2020,12 +2189,35 @@ def create_guard_function(code: str, ref_doc):
             "True": True,
             "False": False
         }
+        # Provide common builtins for guard code execution
+        safe_builtins = {
+            "frappe": frappe,
+            # Type conversions
+            "str": str,
+            "int": int,
+            "float": float,
+            "bool": bool,
+            # Common functions
+            "len": len,
+            "min": min,
+            "max": max,
+            "sum": sum,
+            "abs": abs,
+            "round": round,
+            # Checks
+            "isinstance": isinstance,
+            "hasattr": hasattr,
+            "getattr": getattr,
+            # Boolean
+            "all": all,
+            "any": any,
+        }
         try:
             # Execute as expression or statements
             if "\n" not in code and not code.strip().startswith("return"):
-                return eval(code, {"__builtins__": {}}, local_vars)
+                return eval(code, {"__builtins__": safe_builtins}, local_vars)
             else:
-                exec(code, {"__builtins__": {"frappe": frappe}}, local_vars)
+                exec(code, {"__builtins__": safe_builtins}, local_vars)
                 return local_vars.get("result", False)
         except Exception as e:
             frappe.log_error(f"Guard execution error: {e}\nCode: {code}")
@@ -2102,7 +2294,48 @@ def create_action_function(code: str, ref_doc, instance, is_async: bool = False)
         }
 
         try:
-            exec(code, {"__builtins__": {"frappe": frappe, "json": json}}, local_vars)
+            # Provide common builtins for action code execution
+            safe_builtins = {
+                "frappe": frappe,
+                "json": json,
+                # Type conversions
+                "str": str,
+                "int": int,
+                "float": float,
+                "bool": bool,
+                # Collections
+                "list": list,
+                "dict": dict,
+                "set": set,
+                "tuple": tuple,
+                # Common functions
+                "len": len,
+                "range": range,
+                "enumerate": enumerate,
+                "zip": zip,
+                "sorted": sorted,
+                "reversed": reversed,
+                "min": min,
+                "max": max,
+                "sum": sum,
+                "abs": abs,
+                "round": round,
+                # Checks
+                "isinstance": isinstance,
+                "hasattr": hasattr,
+                "getattr": getattr,
+                "setattr": setattr,
+                # String ops
+                "print": print,
+                "repr": repr,
+                # Exceptions
+                "Exception": Exception,
+                "ValueError": ValueError,
+                "TypeError": TypeError,
+                "KeyError": KeyError,
+                # None/True/False are automatically available
+            }
+            exec(code, {"__builtins__": safe_builtins}, local_vars)
             return local_vars.get("context", context)
         except Exception as e:
             frappe.log_error(f"Action execution error: {e}\nCode: {code}")
@@ -2209,14 +2442,17 @@ def validate_workflow_state_for_submit(doc, method=None):
         return
 
     # Check if this doctype has a workflow attached
-    workflow = frappe.db.get_value(
+    workflow_info = frappe.db.get_value(
         "State Machine",
         {"attached_doctype": doc.doctype, "is_active": 1},
-        "name"
+        ["name", "auto_start_on_create"],
+        as_dict=True
     )
 
-    if not workflow:
+    if not workflow_info:
         return  # No workflow for this doctype, allow submission
+
+    workflow = workflow_info.name
 
     # Check if there's a machine instance for this document
     instance = frappe.db.get_value(
@@ -2230,7 +2466,12 @@ def validate_workflow_state_for_submit(doc, method=None):
     )
 
     if not instance:
-        # No workflow instance yet - block submission, workflow should be triggered first
+        # No workflow instance yet
+        # If auto_start is disabled, workflow is optional - allow submission
+        if not workflow_info.auto_start_on_create:
+            return  # Workflow not started and auto_start disabled, allow submission
+
+        # If auto_start is enabled, block submission - workflow should have started
         frappe.throw(
             _("Cannot submit {0}: Workflow approval required. Please start the approval process first.").format(
                 doc.doctype
@@ -2238,41 +2479,62 @@ def validate_workflow_state_for_submit(doc, method=None):
             title=_("Workflow Required")
         )
 
-    current_state = instance.get("current_state", "").lower()
+    current_state = instance.get("current_state", "")
     status = instance.get("status", "")
 
-    # Define states that allow manual submission (when no submit node)
-    approved_states = ["approved", "completed", "done", "accepted"]
+    # If workflow is cancelled, allow normal submission (workflow no longer controls document)
+    if status == "cancelled":
+        return
 
-    # Allow if workflow is final AND in approved state
-    if status == "final" and current_state in approved_states:
+    # Check if the current state has allowsSubmit set in the workflow config
+    allows_submit = False
+    try:
+        state_machine = frappe.get_doc("State Machine", workflow)
+        if state_machine.json_config:
+            import json
+            config = json.loads(state_machine.json_config)
+            states = config.get("states", {})
+            state_config = states.get(current_state, {})
+            meta = state_config.get("meta", {})
+            # Check for allowsSubmit in meta (set by workflow builder)
+            # Also check domain_node meta for domain nodes
+            if meta.get("allowsSubmit"):
+                allows_submit = True
+            elif meta.get("domain_node", {}).get("allowsSubmit"):
+                allows_submit = True
+    except Exception:
+        pass  # If we can't read config, fall back to keyword matching
+
+    # Allow if state explicitly allows submission
+    if allows_submit:
+        return  # Allow manual submit
+
+    # Fallback: check by state name keywords (for backward compatibility)
+    current_state_lower = current_state.lower()
+    approved_keywords = ["approved", "completed", "done", "accepted", "final"]
+    is_approved_state = any(keyword in current_state_lower for keyword in approved_keywords)
+
+    # Allow if workflow is final AND in approved-named state
+    if status == "final" and is_approved_state:
         return  # Allow manual submit
 
     # Block if workflow ended in non-approved state (rejected, etc.)
     if status == "final":
         frappe.throw(
-            _("Cannot submit {0} {1}: Workflow ended in '{2}' state.").format(
-                doc.doctype, doc.name, instance.get("current_state")
+            _("Cannot submit {0} {1}: Workflow ended in '{2}' state which does not allow submission. "
+              "To enable submission from this state, edit the workflow and check 'Allows Document Submission' for this state.").format(
+                doc.doctype, doc.name, current_state
             ),
-            title=_("Workflow Rejected")
+            title=_("Workflow State Invalid")
         )
 
     # Block if workflow is still pending (idle or active)
     frappe.throw(
         _("Cannot submit {0} {1}: Workflow approval pending. Current state: '{2}'").format(
-            doc.doctype, doc.name, instance.get("current_state")
+            doc.doctype, doc.name, current_state
         ),
         title=_("Approval Required")
     )
-
-    # If status is final but not in allowed states, block
-    if status == "final" and current_state not in allowed_states:
-        frappe.throw(
-            _("Cannot submit {0} {1}: Workflow ended in state '{2}' which does not allow submission.").format(
-                doc.doctype, doc.name, instance.get("current_state")
-            ),
-            title=_("Workflow State Invalid")
-        )
 
 
 def validate_workflow_state_for_save(doc, method=None):
@@ -2346,8 +2608,8 @@ def validate_workflow_state_for_save(doc, method=None):
 
     status = instance.get("status", "")
 
-    # No restrictions for idle or final workflows
-    if status in ("idle", "final"):
+    # No restrictions for idle, final, or cancelled workflows
+    if status in ("idle", "final", "cancelled"):
         return
 
     # Get current pending approval task
@@ -2439,6 +2701,11 @@ def check_and_trigger(doc, method=None):
         if method == "after_insert":
             # Skip auto-creation if auto_start_on_create is disabled
             if not auto_start:
+                return
+
+            # Skip auto-creation for duplicated documents
+            # (User should manually start workflow on duplicates)
+            if getattr(doc.flags, "is_duplicate", False) or doc.get("amended_from"):
                 return
             try:
                 instance_name = get_or_create_instance(doc.doctype, doc.name)
