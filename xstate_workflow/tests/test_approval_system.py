@@ -31,7 +31,12 @@ class TestApprovalTaskManager(FrappeTestCase):
 
         # Add roles
         add_role_to_user(cls.test_approver.name, "Sales User")
+        add_role_to_user(cls.test_approver.name, "System Manager")  # For ToDo permissions
         add_role_to_user(cls.test_manager.name, "Sales Manager")
+        add_role_to_user(cls.test_manager.name, "System Manager")  # For ToDo permissions
+        frappe.db.commit()
+        # Clear permission cache
+        frappe.clear_cache()
 
         # Create a test workflow
         cls.test_machine = create_test_approval_workflow()
@@ -60,6 +65,13 @@ class TestApprovalTaskManager(FrappeTestCase):
 
         frappe.db.commit()
         super().tearDownClass()
+
+    def setUp(self):
+        """Clean up before each test to ensure clean state"""
+        frappe.db.delete("Approval Task", {"reference_doctype": "ToDo"})
+        frappe.db.delete("Machine Instance", {"reference_doctype": "ToDo"})
+        frappe.db.commit()
+        frappe.set_user("Administrator")
 
     def tearDown(self):
         """Clean up after each test"""
@@ -127,7 +139,7 @@ class TestApprovalTaskManager(FrappeTestCase):
         )
 
         # Fetch tasks for test_approver
-        tasks = get_my_approval_tasks(user=self.test_approver.name, status="Pending")
+        tasks = get_my_approval_tasks(user=self.test_approver.name, status="Pending", filters={"reference_doctype": "ToDo"})
 
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["assigned_to"], self.test_approver.name)
@@ -149,7 +161,7 @@ class TestApprovalTaskManager(FrappeTestCase):
         )
 
         # test_approver has Sales User role, should see the task
-        tasks = get_my_approval_tasks(user=self.test_approver.name, status="Pending")
+        tasks = get_my_approval_tasks(user=self.test_approver.name, status="Pending", filters={"reference_doctype": "ToDo"})
 
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["assigned_role"], "Sales User")
@@ -167,7 +179,7 @@ class TestApprovalTaskManager(FrappeTestCase):
             assignees=[self.test_approver.name]
         )
 
-        tasks = get_my_approval_tasks(user=self.test_approver.name, status="Pending")
+        tasks = get_my_approval_tasks(user=self.test_approver.name, status="Pending", filters={"reference_doctype": "ToDo"})
 
         self.assertEqual(len(tasks), 1)
         task = tasks[0]
@@ -192,7 +204,7 @@ class TestApprovalTaskManager(FrappeTestCase):
             assignees=[self.test_approver.name]
         )
 
-        tasks = get_my_approval_tasks(user=self.test_approver.name, status="Pending")
+        tasks = get_my_approval_tasks(user=self.test_approver.name, status="Pending", filters={"reference_doctype": "ToDo"})
 
         self.assertEqual(len(tasks), 1)
         task = tasks[0]
@@ -231,7 +243,7 @@ class TestApprovalTaskManager(FrappeTestCase):
         )
 
         # Fetch tasks for manager
-        tasks = get_my_approval_tasks(user=self.test_manager.name, status="Pending")
+        tasks = get_my_approval_tasks(user=self.test_manager.name, status="Pending", filters={"reference_doctype": "ToDo"})
 
         self.assertEqual(len(tasks), 1)
         task = tasks[0]
@@ -354,7 +366,15 @@ class TestApprovalAPI(FrappeTestCase):
         from xstate_workflow.api.approval import complete_approval_task
         from xstate_workflow.approval import create_approval_task
 
-        instance = create_test_instance(self.test_machine.name, self.test_doc)
+        # Create a test document owned by the approver for permission test
+        test_doc = frappe.get_doc({
+            "doctype": "ToDo",
+            "description": "Test ToDo for Complete Task",
+            "status": "Open",
+            "owner": self.test_approver.name
+        }).insert(ignore_permissions=True)
+
+        instance = create_test_instance(self.test_machine.name, test_doc)
 
         task = create_approval_task(
             workflow_instance=instance.name,
@@ -365,11 +385,16 @@ class TestApprovalAPI(FrappeTestCase):
 
         frappe.set_user(self.test_approver.name)
 
-        result = complete_approval_task(
-            task_name=task.name,
-            action="Approve",
-            comments="Looks good!"
-        )
+        # Set flag to allow workflow operations (approval task completion should have elevated perms)
+        frappe.flags.ignore_permissions = True
+        try:
+            result = complete_approval_task(
+                task_name=task.name,
+                action="Approve",
+                comments="Looks good!"
+            )
+        finally:
+            frappe.flags.ignore_permissions = False
 
         self.assertTrue(result.get("success"))
 

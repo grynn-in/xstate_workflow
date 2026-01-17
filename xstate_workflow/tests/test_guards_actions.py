@@ -194,7 +194,7 @@ class TestConditionalTransitions(FrappeTestCase):
         target, actions = resolve_transition(transition, context, event_data, guards)
 
         self.assertEqual(target, "next_state")
-        self.assertIsNone(actions)
+        self.assertEqual(actions, [])
 
     def test_resolve_object_transition(self):
         """Test resolving an object transition"""
@@ -363,14 +363,11 @@ def create_guarded_machine():
         "guards_table": [
             {
                 "guard_name": "amount_above_threshold",
-                "python_code": "return context.get('amount', 0) > 1000"
+                "python_code": "context.get('amount', 0) > 1000"
             },
             {
                 "guard_name": "is_high_priority",
-                "python_code": """
-doc = frappe.get_doc(context.get('ref_doctype'), context.get('ref_docname'))
-return doc.priority == 'High'
-"""
+                "python_code": "frappe.get_doc(context.get('ref_doctype'), context.get('ref_docname')).priority == 'High'"
             }
         ]
     }).insert()
@@ -401,7 +398,7 @@ def create_test_service():
     return service
 
 
-def sample_service_function(context, event, ref_doc=None):
+def sample_service_function(context, event, doc=None):
     """Sample service function for testing"""
     return {
         **context,

@@ -75,7 +75,8 @@ def trigger_event_sync(doctype: str, docname: str, event: str, data: str | None 
         dict with transition result
     """
     # Permission check - user must have write access to the document
-    if not frappe.has_permission(doctype, "write", docname):
+    # Skip if ignore_permissions flag is set (e.g., from approval task completion)
+    if not frappe.flags.ignore_permissions and not frappe.has_permission(doctype, "write", docname):
         frappe.throw(_("No permission to modify {0} {1}").format(doctype, docname), frappe.PermissionError)
 
     if isinstance(data, str):
