@@ -32,7 +32,7 @@ class TestWorkflowEngine(FrappeTestCase):
     def tearDown(self):
         """Clean up after each test"""
         # Clean up any test instances created during tests
-        frappe.db.delete("Machine Instance", {"ref_doctype": "ToDo"})
+        frappe.db.delete("Machine Instance", {"reference_doctype": "ToDo"})
         frappe.db.commit()
 
     def test_save_machine(self):
@@ -119,7 +119,7 @@ class TestMachineInstance(FrappeTestCase):
         super().tearDownClass()
 
     def tearDown(self):
-        frappe.db.delete("Machine Instance", {"ref_doctype": "ToDo"})
+        frappe.db.delete("Machine Instance", {"reference_doctype": "ToDo"})
         frappe.db.commit()
 
     def test_get_or_create_instance(self):
@@ -132,10 +132,10 @@ class TestMachineInstance(FrappeTestCase):
 
         # Verify instance was created
         instance = frappe.get_doc("Machine Instance", instance_name)
-        self.assertEqual(instance.ref_doctype, "ToDo")
-        self.assertEqual(instance.ref_docname, self.test_todo.name)
+        self.assertEqual(instance.reference_doctype, "ToDo")
+        self.assertEqual(instance.reference_name, self.test_todo.name)
         self.assertEqual(instance.current_state, "draft")  # Initial state
-        self.assertEqual(instance.status, "Active")
+        self.assertEqual(instance.status, "idle")
 
     def test_get_machine_state(self):
         """Test getting workflow state for a document"""
@@ -151,7 +151,7 @@ class TestMachineInstance(FrappeTestCase):
 
         self.assertTrue(result["has_workflow"])
         self.assertEqual(result["current_state"], "draft")
-        self.assertEqual(result["status"], "Active")
+        self.assertEqual(result["status"], "idle")
         self.assertIn("available_events", result)
 
         # Should have SUBMIT event available in draft state
@@ -171,8 +171,8 @@ class TestMachineInstance(FrappeTestCase):
         try:
             # Delete any auto-created instance
             frappe.db.delete("Machine Instance", {
-                "ref_doctype": "ToDo",
-                "ref_docname": todo.name
+                "reference_doctype": "ToDo",
+                "reference_name": todo.name
             })
             frappe.db.commit()
 
@@ -201,7 +201,7 @@ class TestTransitions(FrappeTestCase):
         self.test_todo = create_test_todo()
 
     def tearDown(self):
-        frappe.db.delete("Machine Instance", {"ref_docname": self.test_todo.name})
+        frappe.db.delete("Machine Instance", {"reference_name": self.test_todo.name})
         frappe.db.delete("ToDo", {"name": self.test_todo.name})
         frappe.db.commit()
 
