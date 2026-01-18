@@ -1,12 +1,14 @@
-import { memo } from 'react';
+import { memo, useCallback, useState } from 'react';
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getSmoothStepPath,
+  useReactFlow,
+  useViewport,
   type Position,
 } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { WorkflowEdgeData } from '../../types';
+import { getEventColor } from '../../types';
 
 /**
  * Extended edge data with runtime state properties for instance viewer
@@ -20,6 +22,8 @@ export interface RuntimeEdgeData extends WorkflowEdgeData {
   isVisitedTransition?: boolean;
   /** Edge would be available but is blocked by guard */
   isDisabledTransition?: boolean;
+  /** Custom control point for edge path (user-draggable) */
+  controlPoint?: { x: number; y: number };
 }
 
 export interface TransitionEdgeProps {
@@ -35,6 +39,53 @@ export interface TransitionEdgeProps {
   markerEnd?: string;
 }
 
+/**
+ * Create a quadratic bezier path with a control point
+ */
+function getQuadraticPath(
+  sourceX: number,
+  sourceY: number,
+  targetX: number,
+  targetY: number,
+  controlX: number,
+  controlY: number
+): string {
+  return `M ${sourceX} ${sourceY} Q ${controlX} ${controlY} ${targetX} ${targetY}`;
+}
+
+/**
+ * Calculate default control point (midpoint with offset)
+ */
+function getDefaultControlPoint(
+  sourceX: number,
+  sourceY: number,
+  targetX: number,
+  targetY: number,
+  offset: number = 0
+): { x: number; y: number } {
+  const midX = (sourceX + targetX) / 2;
+  const midY = (sourceY + targetY) / 2;
+
+  // Calculate perpendicular offset
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+
+  // Perpendicular direction (normalized)
+  const perpX = -dy / len;
+  const perpY = dx / len;
+
+  // Add offset perpendicular to the line
+  // Also add some natural curvature based on distance
+  const naturalCurve = Math.min(50, len * 0.1);
+  const totalOffset = offset * 30 + (offset !== 0 ? 0 : naturalCurve);
+
+  return {
+    x: midX + perpX * totalOffset,
+    y: midY + perpY * totalOffset,
+  };
+}
+
 function TransitionEdgeComponent({
   id,
   sourceX,
@@ -47,19 +98,30 @@ function TransitionEdgeComponent({
   selected,
   markerEnd,
 }: TransitionEdgeProps) {
-  // Use custom pathOffset if provided, otherwise default to 0
+  const { setEdges } = useReactFlow();
+  const { zoom } = useViewport();
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Use custom pathOffset if provided
   const offset = data?.pathOffset ?? 0;
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  // Get control point - use saved one or calculate default
+  const defaultControl = getDefaultControlPoint(sourceX, sourceY, targetX, targetY, offset);
+  const controlPoint = data?.controlPoint || defaultControl;
+
+  // Create the path
+  const edgePath = getQuadraticPath(
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
-    targetPosition,
-    borderRadius: 8,
-    offset,
-  });
+    controlPoint.x,
+    controlPoint.y
+  );
+
+  // Label position (at the control point)
+  const labelX = controlPoint.x;
+  const labelY = controlPoint.y;
 
   const transitionType = data?.transitionType || 'event';
   const hasGuard = !!data?.guard;
@@ -71,12 +133,80 @@ function TransitionEdgeComponent({
   const isVisitedTransition = data?.isVisitedTransition;
   const isDisabledTransition = data?.isDisabledTransition;
 
-  // Determine stroke dash array based on transition type and runtime state
+  // Handle control point drag
+  const handleControlPointDrag = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      setIsDragging(true);
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startControlX = controlPoint.x;
+      const startControlY = controlPoint.y;
+      // Capture zoom at drag start to ensure consistent movement
+      const currentZoom = zoom;
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        // Convert screen delta to flow coordinates by dividing by zoom
+        const deltaX = (moveEvent.clientX - startX) / currentZoom;
+        const deltaY = (moveEvent.clientY - startY) / currentZoom;
+
+        setEdges((edges) =>
+          edges.map((edge) => {
+            if (edge.id === id) {
+              return {
+                ...edge,
+                data: {
+                  ...edge.data,
+                  controlPoint: {
+                    x: startControlX + deltaX,
+                    y: startControlY + deltaY,
+                  },
+                },
+              };
+            }
+            return edge;
+          })
+        );
+      };
+
+      const handleMouseUp = () => {
+        setIsDragging(false);
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    },
+    [id, controlPoint, setEdges, zoom]
+  );
+
+  // Reset control point to default
+  const handleResetControlPoint = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      setEdges((edges) =>
+        edges.map((edge) => {
+          if (edge.id === id) {
+            return {
+              ...edge,
+              data: {
+                ...edge.data,
+                controlPoint: undefined, // Remove custom control point
+              },
+            };
+          }
+          return edge;
+        })
+      );
+    },
+    [id, setEdges]
+  );
+
+  // Determine stroke dash array based on transition type
   const getStrokeDasharray = () => {
-    // Available transitions get animated dashes
-    if (isAvailableTransition) {
-      return '8, 4';
-    }
+    if (isAvailableTransition) return '8, 4';
     switch (transitionType) {
       case 'delayed':
         return '5, 5';
@@ -87,16 +217,20 @@ function TransitionEdgeComponent({
     }
   };
 
-  // Determine stroke color based on runtime state
+  // Determine stroke color - uses event-based coloring when not in special state
   const getStrokeColor = () => {
     if (selected) return '#2490ef';
-    if (isAvailableTransition) return '#3b82f6'; // Blue for available
-    if (isVisitedTransition) return '#6b7280'; // Gray for visited
-    if (isDisabledTransition) return '#9ca3af'; // Light gray for disabled
-    return '#374151'; // Default
+    if (isAvailableTransition) return '#3b82f6';
+    if (isVisitedTransition) return '#6b7280';
+    if (isDisabledTransition) return '#9ca3af';
+    // Use event-based color for regular transitions
+    if (transitionType === 'event' && data?.event) {
+      return getEventColor(data.event);
+    }
+    return '#374151';
   };
 
-  // Determine stroke width based on runtime state
+  // Determine stroke width
   const getStrokeWidth = () => {
     if (selected) return 3;
     if (isFromCurrentState || isAvailableTransition) return 2.5;
@@ -104,7 +238,7 @@ function TransitionEdgeComponent({
     return 2;
   };
 
-  // Determine opacity based on runtime state
+  // Determine opacity
   const getOpacity = () => {
     if (isDisabledTransition) return 0.4;
     return 1;
@@ -135,7 +269,6 @@ function TransitionEdgeComponent({
           'xsw-edge-path',
           transitionType,
           selected && 'selected',
-          // Runtime state classes
           isFromCurrentState && 'xsw-edge-from-current',
           isAvailableTransition && 'xsw-edge-available',
           isVisitedTransition && 'xsw-edge-visited',
@@ -148,6 +281,27 @@ function TransitionEdgeComponent({
           opacity: getOpacity(),
         }}
       />
+
+      {/* Draggable control point - only show when edge is selected */}
+      {selected && (
+        <EdgeLabelRenderer>
+          <div
+            className="xsw-edge-control-point"
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${controlPoint.x}px, ${controlPoint.y}px)`,
+              pointerEvents: 'all',
+              cursor: isDragging ? 'grabbing' : 'grab',
+            }}
+            onMouseDown={handleControlPointDrag}
+            onDoubleClick={handleResetControlPoint}
+            title="Drag to adjust curve. Double-click to reset."
+          >
+            <div className="xsw-control-point-inner" />
+          </div>
+        </EdgeLabelRenderer>
+      )}
+
       {labelText && (
         <EdgeLabelRenderer>
           <div
@@ -158,15 +312,24 @@ function TransitionEdgeComponent({
             )}
             style={{
               position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 20}px)`,
               pointerEvents: 'all',
               opacity: getOpacity(),
+              borderLeftColor: strokeColor,
+              borderLeftWidth: '3px',
             }}
           >
-            <span className="xsw-edge-label-event">{labelText}</span>
+            <span className="xsw-edge-label-event" style={{ color: strokeColor }}>{labelText}</span>
             {(hasGuard || hasActions) && (
               <span className="xsw-edge-label-icons">
-                {hasGuard && <span title="Has guard condition">🛡</span>}
+                {hasGuard && (
+                  <span
+                    title="Legacy guard condition - consider using a Threshold Gate node instead"
+                    className="xsw-legacy-guard-badge"
+                  >
+                    🛡
+                  </span>
+                )}
                 {hasActions && <span title="Has actions">⚡</span>}
               </span>
             )}
