@@ -93,14 +93,25 @@ export interface TriggerConfig {
 export interface WorkflowNodeData {
   label: string;
   xstateType: XStateNodeType;
+  /** The XState state name (used for position matching on reload) */
+  stateName?: string;
   description?: string;
   isInitial?: boolean;
+  /** When true, documents can be submitted when workflow reaches this state */
+  allowsSubmit?: boolean;
   // Actions can be strings (legacy) or ConfiguredAction objects (with params)
   entryActions?: Array<string | ConfiguredAction>;
   exitActions?: Array<string | ConfiguredAction>;
   // For compound/parallel states
   children?: string[];
   initialChild?: string;
+  // For parallel states - region information
+  regions?: Array<{
+    name: string;
+    label?: string;
+    initial?: string;
+    childStates?: string[];
+  }>;
   // For history states
   historyType?: HistoryType;
   // For invoke services
@@ -111,6 +122,8 @@ export interface WorkflowNodeData {
   };
   // Metadata for visual styling
   color?: string;
+  // Dynamic handles - outgoing events from this node
+  outgoingEvents?: string[];
   // Index signature for React Flow compatibility
   [key: string]: unknown;
 }
@@ -150,6 +163,9 @@ export interface WorkflowEdge {
   data: WorkflowEdgeData;
   label?: string;
   animated?: boolean;
+  // Handle connections for multi-handle nodes
+  sourceHandle?: string;
+  targetHandle?: string;
 }
 
 // Complete Workflow Configuration
@@ -239,9 +255,108 @@ export const BADGE_COLORS = {
   selected: '#2490ef',
 } as const;
 
+// Event-based colors for handles and edges
+export const EVENT_COLORS: Record<string, string> = {
+  approve: '#22c55e',    // Green
+  approved: '#22c55e',   // Green
+  reject: '#ef4444',     // Red
+  rejected: '#ef4444',   // Red
+  submit: '#3b82f6',     // Blue
+  submitted: '#3b82f6',  // Blue
+  cancel: '#f59e0b',     // Orange
+  cancelled: '#f59e0b',  // Orange
+  escalate: '#8b5cf6',   // Purple
+  escalated: '#8b5cf6',  // Purple
+  pass: '#22c55e',       // Green
+  fail: '#ef4444',       // Red
+  success: '#22c55e',    // Green
+  failure: '#ef4444',    // Red
+  error: '#ef4444',      // Red
+  default: '#6b7280',    // Gray
+} as const;
+
+/**
+ * Get color for an event name based on keywords
+ */
+export function getEventColor(event?: string): string {
+  if (!event) return EVENT_COLORS.default;
+
+  const lowerEvent = event.toLowerCase();
+
+  // Check exact matches first
+  if (EVENT_COLORS[lowerEvent]) {
+    return EVENT_COLORS[lowerEvent];
+  }
+
+  // Check for keyword matches
+  if (lowerEvent.includes('approve')) return EVENT_COLORS.approve;
+  if (lowerEvent.includes('reject')) return EVENT_COLORS.reject;
+  if (lowerEvent.includes('submit')) return EVENT_COLORS.submit;
+  if (lowerEvent.includes('cancel')) return EVENT_COLORS.cancel;
+  if (lowerEvent.includes('escalat')) return EVENT_COLORS.escalate;
+  if (lowerEvent.includes('pass')) return EVENT_COLORS.pass;
+  if (lowerEvent.includes('fail')) return EVENT_COLORS.fail;
+  if (lowerEvent.includes('success')) return EVENT_COLORS.success;
+  if (lowerEvent.includes('error')) return EVENT_COLORS.error;
+
+  return EVENT_COLORS.default;
+}
+
 // =============================================================================
 // DOMAIN-SPECIFIC NODE TYPES
 // =============================================================================
+
+// Supported operators for threshold gate conditions (matches backend evaluate_operator)
+export type CheckOperator =
+  | 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'ne'  // Comparison
+  | 'contains' | 'not_contains' | 'starts_with' | 'ends_with'  // String
+  | 'in' | 'not_in'  // List
+  | 'is_set' | 'is_not_set';  // Null checks
+
+// Single condition for compound threshold gate
+export interface CheckCondition {
+  id: string;
+  field: string;
+  fieldType?: string;  // For UI hints (e.g., 'Int', 'Data', 'Select')
+  operator: CheckOperator;
+  value?: string | number | boolean;
+}
+
+// Operators available by field type category
+export const OPERATORS_BY_TYPE: Record<string, CheckOperator[]> = {
+  numeric: ['gt', 'gte', 'lt', 'lte', 'eq', 'ne', 'is_set', 'is_not_set'],
+  text: ['eq', 'ne', 'contains', 'not_contains', 'starts_with', 'ends_with', 'is_set', 'is_not_set'],
+  select: ['eq', 'ne', 'in', 'not_in', 'is_set', 'is_not_set'],
+  check: ['eq', 'is_set'],
+  date: ['gt', 'gte', 'lt', 'lte', 'eq', 'ne', 'is_set', 'is_not_set'],
+  link: ['eq', 'ne', 'is_set', 'is_not_set'],
+};
+
+// Map Frappe fieldtype to type category
+export const FIELD_TYPE_CATEGORIES: Record<string, string> = {
+  // Numeric
+  Int: 'numeric',
+  Float: 'numeric',
+  Currency: 'numeric',
+  Percent: 'numeric',
+  // Text
+  Data: 'text',
+  'Small Text': 'text',
+  Text: 'text',
+  'Text Editor': 'text',
+  'Long Text': 'text',
+  // Select
+  Select: 'select',
+  // Check (boolean)
+  Check: 'check',
+  // Date
+  Date: 'date',
+  Datetime: 'date',
+  Time: 'date',
+  // Link
+  Link: 'link',
+  // Default to text for unknown
+};
 
 // Assignment Resolver Configuration
 export type ResolverType =
@@ -320,18 +435,30 @@ export interface StartNodeData extends WorkflowNodeData {
 // Threshold Gate Node Data
 export interface ThresholdGateNodeData extends WorkflowNodeData {
   domainType: 'threshold_gate';
-  checkType?: 'field' | 'method';  // Default: 'field' for backward compatibility
-  // Field-based check (existing)
+
+  // Check mode: simple (single condition), compound (multiple with AND/OR), method
+  checkMode?: 'simple' | 'compound' | 'method';  // Default: 'simple'
+
+  // Legacy field (maps to checkMode) - backward compatibility
+  checkType?: 'field' | 'method';
+
+  // Simple mode - single field comparison (backward compatible with old threshold)
   threshold?: {
     field: string;
     operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'ne';
     value: number;
   };
-  // Method-based check (NEW)
+
+  // Compound mode - multiple conditions with AND/OR logic
+  conditions?: CheckCondition[];
+  conditionLogic?: 'and' | 'or';  // How to combine conditions (default: 'and')
+
+  // Method-based check
   methodCheck?: {
     method: string;           // e.g., "check_credit_limit"
     storeResultIn?: string;   // context key to store details
   };
+
   passTarget?: string;
   failTarget?: string;
 }

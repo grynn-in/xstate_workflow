@@ -701,4 +701,62 @@ describe('workflowToXState', () => {
       expect(transition.guard).toBe('check_amount_greaterThan');
     });
   });
+
+  describe('allowsSubmit property', () => {
+    it('should include allowsSubmit in state meta when set to true', () => {
+      const config: WorkflowBuilderConfig = {
+        id: 'submit-workflow',
+        name: 'Submit Workflow',
+        version: 1,
+        nodes: [
+          {
+            id: 'node1',
+            type: 'atomic',
+            position: { x: 0, y: 0 },
+            data: { label: 'draft', xstateType: 'atomic', isInitial: true },
+          },
+          {
+            id: 'node2',
+            type: 'atomic',
+            position: { x: 200, y: 0 },
+            data: { label: 'approved', xstateType: 'atomic', allowsSubmit: true },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge1',
+            source: 'node1',
+            target: 'node2',
+            type: 'transition',
+            data: { event: 'APPROVE', transitionType: 'event' },
+          },
+        ],
+      };
+
+      const result = workflowToXState(config);
+
+      expect(result.states.approved.meta?.allowsSubmit).toBe(true);
+    });
+
+    it('should not include allowsSubmit in meta when not set', () => {
+      const config: WorkflowBuilderConfig = {
+        id: 'no-submit-workflow',
+        name: 'No Submit Workflow',
+        version: 1,
+        nodes: [
+          {
+            id: 'node1',
+            type: 'atomic',
+            position: { x: 0, y: 0 },
+            data: { label: 'draft', xstateType: 'atomic', isInitial: true },
+          },
+        ],
+        edges: [],
+      };
+
+      const result = workflowToXState(config);
+
+      expect(result.states.draft.meta?.allowsSubmit).toBeUndefined();
+    });
+  });
 });

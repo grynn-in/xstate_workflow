@@ -531,4 +531,45 @@ describe('xstateToWorkflow', () => {
       expect(retryEdge?.source).toBe(retryEdge?.target);
     });
   });
+
+  describe('allowsSubmit property', () => {
+    it('should read allowsSubmit from state meta', () => {
+      const xstate: XStateMachineConfig = {
+        id: 'submit-workflow',
+        version: '1',
+        initial: 'draft',
+        states: {
+          draft: {
+            on: { APPROVE: 'approved' },
+          },
+          approved: {
+            meta: {
+              allowsSubmit: true,
+            },
+          },
+        },
+      };
+
+      const result = xstateToWorkflow(xstate);
+
+      const approvedNode = result.nodes.find((n) => n.data.label === 'approved');
+      expect(approvedNode?.data.allowsSubmit).toBe(true);
+    });
+
+    it('should default allowsSubmit to undefined when not in meta', () => {
+      const xstate: XStateMachineConfig = {
+        id: 'no-submit-workflow',
+        version: '1',
+        initial: 'draft',
+        states: {
+          draft: {},
+        },
+      };
+
+      const result = xstateToWorkflow(xstate);
+
+      const draftNode = result.nodes.find((n) => n.data.label === 'draft');
+      expect(draftNode?.data.allowsSubmit).toBeUndefined();
+    });
+  });
 });

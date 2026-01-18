@@ -93,6 +93,14 @@ function buildStateConfig(
     config.history = data.historyType || 'shallow';
   }
 
+  // Add meta for allowsSubmit
+  if (data.allowsSubmit) {
+    config.meta = {
+      ...config.meta,
+      allowsSubmit: true,
+    };
+  }
+
   // Add entry/exit actions
   if (data.entryActions?.length) {
     config.entry = data.entryActions;
@@ -343,8 +351,14 @@ function extractDomainNodeMeta(node: WorkflowNode): Record<string, unknown> {
 
     case 'threshold_gate': {
       const gateData = node.data as ThresholdGateNodeData;
+      // Determine effective mode
+      const effectiveMode = gateData.checkMode || (gateData.checkType === 'method' ? 'method' : 'simple');
       return {
+        checkMode: effectiveMode,
         threshold: gateData.threshold,
+        conditions: gateData.conditions,
+        conditionLogic: gateData.conditionLogic,
+        methodCheck: gateData.methodCheck,
         label: gateData.label,
       };
     }
@@ -549,18 +563,24 @@ function buildThresholdGateConfig(
   allEdges: WorkflowEdge[]
 ): XStateStateConfig {
   const gateData = node.data as ThresholdGateNodeData;
-  const isMethodCheck = gateData.checkType === 'method';
 
-  // Build meta based on check type
+  // Determine effective mode (backward compatibility)
+  const effectiveMode = gateData.checkMode || (gateData.checkType === 'method' ? 'method' : 'simple');
+
+  // Build meta based on check mode
   const domainNodeMeta: Record<string, unknown> = {
     type: 'threshold_gate',
-    checkType: gateData.checkType || 'field',
+    checkMode: effectiveMode,
     label: gateData.label,
   };
 
-  if (isMethodCheck) {
+  if (effectiveMode === 'method') {
     domainNodeMeta.methodCheck = gateData.methodCheck;
+  } else if (effectiveMode === 'compound') {
+    domainNodeMeta.conditions = gateData.conditions;
+    domainNodeMeta.conditionLogic = gateData.conditionLogic || 'and';
   } else {
+    // simple mode
     domainNodeMeta.threshold = gateData.threshold;
   }
 
@@ -576,13 +596,19 @@ function buildThresholdGateConfig(
   const passEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'pass');
   const failEdge = outgoingEdges.find((e) => (e as { sourceHandle?: string }).sourceHandle === 'fail');
 
-  // Build guard name based on check type
+  // Build guard name based on check mode
   let guardName: string;
-  if (isMethodCheck) {
+  if (effectiveMode === 'method') {
     guardName = gateData.methodCheck?.method
       ? `method_check_${gateData.methodCheck.method}`
       : 'method_check';
+  } else if (effectiveMode === 'compound') {
+    // For compound conditions, generate a descriptive guard name
+    const condCount = gateData.conditions?.length || 0;
+    const logic = gateData.conditionLogic || 'and';
+    guardName = `compound_check_${logic}_${condCount}`;
   } else {
+    // simple mode
     guardName = gateData.threshold
       ? `threshold_${gateData.threshold.field}_${gateData.threshold.operator}_${gateData.threshold.value}`
       : 'threshold_check';

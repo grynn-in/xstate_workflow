@@ -17,6 +17,7 @@ import type {
   EndNodeData,
   StartNodeData,
 } from '../types';
+import { calculateAutoLayout } from '../utils/autoLayout';
 
 // Helper to check if a state has domain node metadata
 interface DomainNodeMeta {
@@ -56,19 +57,46 @@ export function xstateToWorkflow(
   const edges: WorkflowEdge[] = [];
 
   // Create a map for existing positions if available
-  // Match by node.id (state name) or node.data.label
-  const existingPositions = new Map<string, { x: number; y: number }>();
-  if (existingLayout) {
+  // Match by stateName (XState state name) for reliable position persistence
+  let existingPositions = new Map<string, { x: number; y: number }>();
+  if (existingLayout && existingLayout.nodes.length > 0) {
     for (const node of existingLayout.nodes) {
-      // Prefer node.id as key (matches state name directly)
+      // Primary key: stateName (XState state name) - most reliable match
+      if (node.data?.stateName) {
+        existingPositions.set(node.data.stateName, node.position);
+      }
+      // Fallback: node.id for older saved configs
       if (node.id) {
         existingPositions.set(node.id, node.position);
       }
-      // Also store by label for backwards compatibility
+      // Fallback: label for backwards compatibility
       if (node.data?.label) {
         existingPositions.set(node.data.label, node.position);
       }
     }
+  }
+
+  // Create a map for existing edge control points
+  // Key: "sourceLabel->targetLabel:event" for reliable matching
+  const existingEdgeData = new Map<string, WorkflowEdgeData>();
+  if (existingLayout && existingLayout.edges?.length > 0) {
+    for (const edge of existingLayout.edges) {
+      // Find source and target labels from existing nodes
+      const sourceNode = existingLayout.nodes.find(n => n.id === edge.source);
+      const targetNode = existingLayout.nodes.find(n => n.id === edge.target);
+      const sourceLabel = sourceNode?.data?.stateName || sourceNode?.data?.label || edge.source;
+      const targetLabel = targetNode?.data?.stateName || targetNode?.data?.label || edge.target;
+      const event = edge.data?.event || '';
+      const key = `${sourceLabel}->${targetLabel}:${event}`;
+      if (edge.data) {
+        existingEdgeData.set(key, edge.data);
+      }
+    }
+  }
+
+  // If no existing positions, calculate auto-layout
+  if (existingPositions.size === 0 && xstate.states) {
+    existingPositions = calculateAutoLayout(xstate);
   }
 
   // Process all states
@@ -83,6 +111,14 @@ export function xstateToWorkflow(
     existingPositions
   );
 
+  // Restore edge control points from saved config
+  if (existingEdgeData.size > 0) {
+    restoreEdgeControlPoints(edges, nodes, existingEdgeData);
+  }
+
+  // Calculate path offsets for edges from the same source to spread them out
+  calculateEdgeOffsets(edges);
+
   return {
     id: xstate.id,
     name: xstate.id,
@@ -91,6 +127,63 @@ export function xstateToWorkflow(
     nodes,
     edges,
   };
+}
+
+/**
+ * Restore control points and other edge-specific data from saved config
+ */
+function restoreEdgeControlPoints(
+  edges: WorkflowEdge[],
+  nodes: WorkflowNode[],
+  existingEdgeData: Map<string, WorkflowEdgeData>
+): void {
+  for (const edge of edges) {
+    // Find source and target labels
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+    const sourceLabel = sourceNode?.data?.stateName || sourceNode?.data?.label || edge.source;
+    const targetLabel = targetNode?.data?.stateName || targetNode?.data?.label || edge.target;
+    const event = edge.data?.event || '';
+    const key = `${sourceLabel}->${targetLabel}:${event}`;
+
+    const savedData = existingEdgeData.get(key);
+    if (savedData?.controlPoint) {
+      // Restore the control point
+      edge.data.controlPoint = savedData.controlPoint;
+    }
+  }
+}
+
+/**
+ * Calculate path offsets for edges to prevent overlap
+ * Edges from the same source get spread out vertically
+ */
+function calculateEdgeOffsets(edges: WorkflowEdge[]): void {
+  // Group edges by source
+  const edgesBySource = new Map<string, WorkflowEdge[]>();
+  for (const edge of edges) {
+    const source = edge.source;
+    if (!edgesBySource.has(source)) {
+      edgesBySource.set(source, []);
+    }
+    edgesBySource.get(source)!.push(edge);
+  }
+
+  // Assign offsets to edges from the same source
+  for (const [, sourceEdges] of edgesBySource) {
+    if (sourceEdges.length <= 1) continue;
+
+    // Sort edges by target to get consistent ordering
+    sourceEdges.sort((a, b) => a.target.localeCompare(b.target));
+
+    // Calculate offset for each edge (-1, 0, 1 for 3 edges, etc.)
+    const count = sourceEdges.length;
+    const spread = 2; // Offset multiplier
+    for (let i = 0; i < count; i++) {
+      const offset = (i - (count - 1) / 2) * spread;
+      sourceEdges[i].data.pathOffset = offset;
+    }
+  }
 }
 
 /**
@@ -127,6 +220,12 @@ function processStates(
         yOffset,
         parentId
       );
+
+      // Set isInitial for domain nodes (was missing - caused "No initial state found" error)
+      if (stateName === initialState && !parentId) {
+        domainNode.data.isInitial = true;
+      }
+
       nodes.push(domainNode);
 
       // Update offsets
@@ -150,8 +249,10 @@ function processStates(
 
     const nodeData: WorkflowNodeData = {
       label: stateName,
+      stateName, // Store for position matching on reload
       xstateType,
       isInitial,
+      allowsSubmit: stateConfig.meta?.allowsSubmit === true ? true : undefined,
       entryActions: normalizeActions(stateConfig.entry),
       exitActions: normalizeActions(stateConfig.exit),
     };
@@ -164,6 +265,19 @@ function processStates(
     // Handle compound state initial
     if (stateConfig.initial) {
       nodeData.initialChild = stateConfig.initial;
+    }
+
+    // Handle parallel state regions
+    if (xstateType === 'parallel' && stateConfig.states) {
+      nodeData.regions = Object.entries(stateConfig.states).map(([regionName, regionConfig]) => {
+        const region = regionConfig as XStateStateConfig;
+        return {
+          name: regionName,
+          label: region.meta?.label || regionName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+          initial: region.initial,
+          childStates: region.states ? Object.keys(region.states) : [],
+        };
+      });
     }
 
     const node: WorkflowNode = {
@@ -216,6 +330,45 @@ function processStates(
     // Process always transitions
     if (stateConfig.always) {
       processAlwaysTransitions(stateConfig.always, sourceId, edges, stateIdMap);
+    }
+  }
+
+  // Update nodes with their outgoing events (for dynamic handle generation)
+  updateNodesWithOutgoingEvents(nodes, edges);
+}
+
+/**
+ * Update nodes with their outgoing event names for dynamic handle creation
+ */
+function updateNodesWithOutgoingEvents(nodes: WorkflowNode[], edges: WorkflowEdge[]): void {
+  // Group edges by source node
+  const edgesBySource = new Map<string, WorkflowEdge[]>();
+  for (const edge of edges) {
+    if (!edgesBySource.has(edge.source)) {
+      edgesBySource.set(edge.source, []);
+    }
+    edgesBySource.get(edge.source)!.push(edge);
+  }
+
+  // Update each node with its outgoing events
+  for (const node of nodes) {
+    const nodeEdges = edgesBySource.get(node.id) || [];
+    const eventSet = new Set<string>();
+
+    for (const edge of nodeEdges) {
+      // Only include event-based transitions (not delayed/always)
+      if (edge.data?.transitionType === 'event' && edge.data?.event) {
+        eventSet.add(edge.data.event);
+      }
+    }
+
+    // Convert to array and sort for consistent handle ordering
+    const outgoingEvents = Array.from(eventSet).sort();
+
+    // Only add outgoingEvents if there are multiple event-based transitions
+    // (single events use the default centered handle)
+    if (outgoingEvents.length > 1) {
+      node.data.outgoingEvents = outgoingEvents;
     }
   }
 }
@@ -361,6 +514,8 @@ function createEdgeFromTransition(
       source: sourceId,
       target: targetId,
       type: 'transition',
+      // Set sourceHandle for event-based transitions (will be used if node has multiple events)
+      ...(transitionType === 'event' && eventName && { sourceHandle: eventName }),
       data: {
         event: eventName,
         transitionType,
@@ -397,6 +552,8 @@ function createEdgeFromTransition(
     source: sourceId,
     target: targetId,
     type: 'transition',
+    // Set sourceHandle for event-based transitions (will be used if node has multiple events)
+    ...(transitionType === 'event' && eventName && { sourceHandle: eventName }),
     data: edgeData,
   });
 }
@@ -473,16 +630,31 @@ function buildDomainNode(
       } as ParallelApprovalNodeData;
       break;
 
-    case 'threshold_gate':
+    case 'threshold_gate': {
+      // Handle both new checkMode and legacy checkType
+      const checkMode = meta.checkMode as ThresholdGateNodeData['checkMode'];
+      const legacyCheckType = meta.checkType as 'field' | 'method' | undefined;
+
+      // Determine effective mode for backward compatibility
+      let effectiveMode: 'simple' | 'compound' | 'method' = 'simple';
+      if (checkMode) {
+        effectiveMode = checkMode;
+      } else if (legacyCheckType === 'method') {
+        effectiveMode = 'method';
+      }
+
       nodeData = {
         label: (meta.label as string) || stateName,
         xstateType: 'atomic',
         domainType: 'threshold_gate',
-        checkType: (meta.checkType as 'field' | 'method') || 'field',
+        checkMode: effectiveMode,
         threshold: meta.threshold as ThresholdGateNodeData['threshold'],
+        conditions: meta.conditions as ThresholdGateNodeData['conditions'],
+        conditionLogic: (meta.conditionLogic as 'and' | 'or') || 'and',
         methodCheck: meta.methodCheck as ThresholdGateNodeData['methodCheck'],
       } as ThresholdGateNodeData;
       break;
+    }
 
     case 'classification_branch':
       nodeData = {
@@ -511,6 +683,9 @@ function buildDomainNode(
         xstateType: 'atomic',
       };
   }
+
+  // Add stateName to all domain nodes for position matching on reload
+  nodeData.stateName = stateName;
 
   return {
     id: nodeId,
