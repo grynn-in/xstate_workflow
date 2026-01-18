@@ -24,6 +24,7 @@ import {
   useHelperLines,
   workflowToXState,
   xstateToWorkflow,
+  calculateAutoLayout,
   type WorkflowBuilderConfig,
   type WorkflowNode,
   type WorkflowEdge,
@@ -443,6 +444,38 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     }
   }, [selectedNode, selectedEdge, setNodes, setEdges, setSelectedNode, setSelectedEdge, takeSnapshot]);
 
+  // Handle auto-layout
+  const handleAutoLayout = useCallback(() => {
+    // Convert current workflow to XState config to calculate layout
+    const config = getConfig();
+    const xstate = workflowToXState(config);
+
+    // Calculate new positions using auto-layout algorithm
+    const newPositions = calculateAutoLayout(xstate);
+
+    // Update node positions
+    setNodes((prevNodes) =>
+      prevNodes.map((node) => {
+        const stateName = node.data?.stateName || node.data?.label || node.id;
+        const newPos = newPositions.get(stateName);
+        if (newPos) {
+          return { ...node, position: newPos };
+        }
+        return node;
+      })
+    );
+
+    setHasUnsavedChanges(true);
+    takeSnapshot();
+
+    // Fit view after layout
+    if (reactFlowInstance) {
+      setTimeout(() => {
+        reactFlowInstance.fitView({ padding: 0.2 });
+      }, 50);
+    }
+  }, [getConfig, setNodes, takeSnapshot, reactFlowInstance]);
+
   // Handle add node from palette (click)
   const handleAddNode = useCallback(
     (type: XStateNodeType, position: { x: number; y: number }) => {
@@ -585,6 +618,16 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
               style={{ padding: '4px 8px', minWidth: 'auto', marginRight: '8px' }}
             >
               &#x1F5D1;
+            </button>
+            {/* Auto-layout button */}
+            <button
+              className="xsw-button xsw-button-secondary"
+              onClick={handleAutoLayout}
+              disabled={nodes.length === 0}
+              title="Auto-arrange nodes left-to-right"
+              style={{ marginRight: '8px' }}
+            >
+              Auto-layout
             </button>
             <button
               className="xsw-button xsw-button-secondary"
