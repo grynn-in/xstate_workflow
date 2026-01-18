@@ -268,27 +268,57 @@ function GuardBuilderPanelComponent({
               <div
                 key={index}
                 style={{
-                  padding: '8px',
+                  padding: '10px',
                   background: '#f9fafb',
-                  borderRadius: '4px',
+                  borderRadius: '6px',
                   marginBottom: '8px',
-                  position: 'relative'
+                  border: '1px solid #e5e7eb'
                 }}
               >
-                <button
-                  onClick={() => removeCondition(index)}
-                  style={{
-                    position: 'absolute',
-                    top: '4px',
-                    right: '4px',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: '#dc3545'
-                  }}
-                >
-                  ×
-                </button>
+                {/* Header with condition label and remove button */}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '8px'
+                }}>
+                  <span style={{ fontSize: '12px', fontWeight: 500, color: '#6b7280' }}>
+                    Condition {index + 1}
+                  </span>
+                  <button
+                    onClick={() => removeCondition(index)}
+                    aria-label="Remove condition"
+                    title="Remove condition"
+                    className="xsw-remove-btn"
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '4px',
+                      border: '1px solid #e5e7eb',
+                      background: '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#9ca3af',
+                      fontSize: '16px',
+                      lineHeight: 1,
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#fee2e2';
+                      e.currentTarget.style.borderColor = '#fca5a5';
+                      e.currentTarget.style.color = '#dc2626';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#fff';
+                      e.currentTarget.style.borderColor = '#e5e7eb';
+                      e.currentTarget.style.color = '#9ca3af';
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <select
                     className="xsw-select"

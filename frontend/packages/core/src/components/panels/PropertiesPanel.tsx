@@ -12,7 +12,6 @@ import type {
   AgenticNodeData,
   RestFetchNodeData,
 } from '../../types';
-import { GuardBuilderPanel } from './GuardBuilderPanel';
 import { ActionBuilderPanel } from './ActionBuilderPanel';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
 import { ApprovalNodePanel } from './domain/ApprovalNodePanel';
@@ -38,7 +37,7 @@ export interface PropertiesPanelProps {
   onFetchDoctypeFields?: (doctype: string) => Promise<FrappeField[]>;
 }
 
-type PanelMode = 'properties' | 'guard' | 'entry-actions' | 'exit-actions' | 'transition-actions' | 'trigger';
+type PanelMode = 'properties' | 'entry-actions' | 'exit-actions' | 'transition-actions' | 'trigger';
 
 function PropertiesPanelComponent({
   selectedNode,
@@ -93,20 +92,6 @@ function PropertiesPanelComponent({
   const closePanelMode = useCallback(() => {
     setPanelMode('properties');
   }, []);
-
-  // Show guard builder
-  if (panelMode === 'guard' && selectedEdge) {
-    return (
-      <div className="xsw-panel">
-        <GuardBuilderPanel
-          guard={selectedEdge.data.guard}
-          fields={doctypeFields}
-          onGuardChange={handleGuardChange}
-          onClose={closePanelMode}
-        />
-      </div>
-    );
-  }
 
   // Show entry actions builder
   if (panelMode === 'entry-actions' && selectedNode) {
@@ -202,6 +187,26 @@ function PropertiesPanelComponent({
               onChange={(e) => onNodeChange?.(selectedNode.id, { label: e.target.value })}
             />
           </div>
+
+          {/* Allows Submit checkbox for applicable domain nodes */}
+          {(domainType === 'approval' || domainType === 'parallel_approval' || domainType === 'auto_action') && (
+            <div className="xsw-panel-section">
+              <label
+                className="xsw-checkbox"
+                title="When checked, documents can be submitted when the workflow reaches this state"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedNode.data.allowsSubmit || false}
+                  onChange={(e) => onNodeChange?.(selectedNode.id, { allowsSubmit: e.target.checked })}
+                />
+                <span>Allows Document Submission</span>
+              </label>
+              <p style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>
+                Enable to allow submitting the document when workflow is in this state
+              </p>
+            </div>
+          )}
 
           {/* Domain-specific panel */}
           {domainType === 'approval' && (
@@ -322,6 +327,23 @@ function PropertiesPanelComponent({
         </div>
 
         <div className="xsw-panel-section">
+          <label
+            className="xsw-checkbox"
+            title="When checked, documents can be submitted when the workflow reaches this state"
+          >
+            <input
+              type="checkbox"
+              checked={selectedNode.data.allowsSubmit || false}
+              onChange={(e) => onNodeChange?.(selectedNode.id, { allowsSubmit: e.target.checked })}
+            />
+            <span>Allows Document Submission</span>
+          </label>
+          <p style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>
+            Enable to allow submitting the document when workflow is in this state
+          </p>
+        </div>
+
+        <div className="xsw-panel-section">
           <div className="xsw-panel-section-title" title="Atomic: Simple state. Compound: Contains child states. Parallel: Multiple active regions. Final: End state. History: Remembers previous state.">State Type</div>
           <select
             className="xsw-select"
@@ -422,23 +444,6 @@ function PropertiesPanelComponent({
       return <div className="xsw-panel"><div className="xsw-panel-header">Transition Properties</div></div>;
     }
 
-    // Handle guard display - guard could be string (legacy) or object
-    const guard = selectedEdge.data?.guard;
-    let guardDisplay: string | null = null;
-    if (guard) {
-      if (typeof guard === 'string') {
-        guardDisplay = guard;
-      } else if (typeof guard === 'object' && guard.type) {
-        guardDisplay = guard.type === 'python'
-          ? guard.name
-          : guard.type === 'simple'
-            ? `${guard.field} ${guard.operator}`
-            : 'Compound guard';
-      } else if (typeof guard === 'object' && guard.name) {
-        guardDisplay = guard.name;
-      }
-    }
-
     const hasTrigger = selectedEdge.data?.trigger?.button?.enabled ||
                        selectedEdge.data?.trigger?.auto?.enabled ||
                        selectedEdge.data?.trigger?.delayed?.enabled;
@@ -519,27 +524,6 @@ function PropertiesPanelComponent({
         )}
 
         <div className="xsw-panel-section">
-          <div className="xsw-panel-section-title" title="A condition that must be true for this transition to occur. Use guards to create conditional branching.">Guard Condition</div>
-          {guardDisplay ? (
-            <div className="xsw-badge xsw-badge-guard" style={{ marginBottom: '8px' }}>
-              🛡 {guardDisplay}
-            </div>
-          ) : (
-            <span style={{ color: '#9ca3af', fontSize: '14px', display: 'block', marginBottom: '8px' }}>
-              No guard
-            </span>
-          )}
-          <button
-            className="xsw-button xsw-button-secondary"
-            style={{ width: '100%' }}
-            title="Add a condition that must be true for this transition to occur"
-            onClick={() => setPanelMode('guard')}
-          >
-            Configure Guard
-          </button>
-        </div>
-
-        <div className="xsw-panel-section">
           <div className="xsw-panel-section-title" title="Python functions to run during this transition (e.g., log_transition, notify_user)">Transition Actions</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
             {selectedEdge.data.actions?.length ? (
@@ -562,40 +546,43 @@ function PropertiesPanelComponent({
           </button>
         </div>
 
-        <div className="xsw-panel-section">
-          <div className="xsw-panel-section-title" title="Configure how users can trigger this transition: buttons, automatic events, or delayed timers">Trigger</div>
-          {hasTrigger ? (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
-              {selectedEdge.data.trigger?.button?.enabled && (
-                <span className="xsw-badge" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
-                  🖱 Button: {selectedEdge.data.trigger.button.label}
-                </span>
-              )}
-              {selectedEdge.data.trigger?.auto?.enabled && (
-                <span className="xsw-badge" style={{ background: '#fef3c7', color: '#92400e' }}>
-                  ⚡ Auto: {selectedEdge.data.trigger.auto.event}
-                </span>
-              )}
-              {selectedEdge.data.trigger?.delayed?.enabled && (
-                <span className="xsw-badge" style={{ background: '#f3e8ff', color: '#7c3aed' }}>
-                  ⏱ Delayed: {selectedEdge.data.trigger.delayed.delay} {selectedEdge.data.trigger.delayed.unit}
-                </span>
-              )}
-            </div>
-          ) : (
-            <span style={{ color: '#9ca3af', fontSize: '14px', display: 'block', marginBottom: '8px' }}>
-              No triggers configured
-            </span>
-          )}
-          <button
-            className="xsw-button xsw-button-secondary"
-            style={{ width: '100%' }}
-            title="Set up buttons, auto-triggers, or delayed triggers for this transition"
-            onClick={() => setPanelMode('trigger')}
-          >
-            Configure Triggers
-          </button>
-        </div>
+        {/* Hide triggers for 'always' transitions - they fire automatically on state entry */}
+        {selectedEdge.data.transitionType !== 'always' && (
+          <div className="xsw-panel-section">
+            <div className="xsw-panel-section-title" title="Configure how users can trigger this transition: buttons, automatic events, or delayed timers">Trigger</div>
+            {hasTrigger ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+                {selectedEdge.data.trigger?.button?.enabled && (
+                  <span className="xsw-badge" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
+                    🖱 Button: {selectedEdge.data.trigger.button.label}
+                  </span>
+                )}
+                {selectedEdge.data.trigger?.auto?.enabled && (
+                  <span className="xsw-badge" style={{ background: '#fef3c7', color: '#92400e' }}>
+                    ⚡ Auto: {selectedEdge.data.trigger.auto.event}
+                  </span>
+                )}
+                {selectedEdge.data.trigger?.delayed?.enabled && (
+                  <span className="xsw-badge" style={{ background: '#f3e8ff', color: '#7c3aed' }}>
+                    ⏱ Delayed: {selectedEdge.data.trigger.delayed.delay} {selectedEdge.data.trigger.delayed.unit}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span style={{ color: '#9ca3af', fontSize: '14px', display: 'block', marginBottom: '8px' }}>
+                No triggers configured
+              </span>
+            )}
+            <button
+              className="xsw-button xsw-button-secondary"
+              style={{ width: '100%' }}
+              title="Set up buttons, auto-triggers, or delayed triggers for this transition"
+              onClick={() => setPanelMode('trigger')}
+            >
+              Configure Triggers
+            </button>
+          </div>
+        )}
 
         <div className="xsw-panel-section">
           <div className="xsw-panel-section-title" title="Visually separate overlapping edges by offsetting this edge's path">Path Offset</div>
