@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { ParallelApprovalNodeData } from '../../../types';
@@ -16,6 +16,7 @@ const COMPLETION_RULE_LABELS: Record<string, string> = {
 };
 
 function ParallelApprovalNodeComponent({ data, selected }: ParallelApprovalNodeProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const { label, approvers = [], completionRule, quorumCount, slaHours, priority, onReject } = data;
 
   // Get completion rule display text
@@ -29,7 +30,8 @@ function ParallelApprovalNodeComponent({ data, selected }: ParallelApprovalNodeP
         'xsw-domain-node',
         'xsw-parallel-approval-node',
         selected && 'selected',
-        priority && `priority-${priority.toLowerCase()}`
+        priority && `priority-${priority.toLowerCase()}`,
+        isExpanded && 'expanded'
       )}
     >
       {/* Input Handle */}
@@ -39,8 +41,12 @@ function ParallelApprovalNodeComponent({ data, selected }: ParallelApprovalNodeP
         className="xsw-handle"
       />
 
-      {/* Header with parallel icon */}
-      <div className="xsw-parallel-approval-header">
+      {/* Header with parallel icon - clickable to expand/collapse */}
+      <div
+        className="xsw-parallel-approval-header"
+        onClick={() => setIsExpanded(!isExpanded)}
+        style={{ cursor: 'pointer' }}
+      >
         <div className="xsw-parallel-approval-icon">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
             <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
@@ -52,62 +58,83 @@ function ParallelApprovalNodeComponent({ data, selected }: ParallelApprovalNodeP
             {priority}
           </span>
         )}
+        {/* Expand/collapse indicator */}
+        <span className="xsw-expand-indicator">
+          {isExpanded ? '▼' : '▶'}
+        </span>
       </div>
 
-      {/* Separator */}
-      <div className="xsw-node-separator" />
-
-      {/* Approvers list */}
-      <div className="xsw-parallel-approvers">
-        {approvers.length > 0 ? (
-          approvers.slice(0, 3).map((approver) => (
-            <div
-              key={approver.id}
-              className={clsx(
-                'xsw-approver-slot',
-                approver.required && 'required'
-              )}
-            >
-              <span className="xsw-approver-icon">
-                {approver.resolver?.type === 'role' ? '👥' : '👤'}
-              </span>
-              <span className="xsw-approver-label">{approver.label || 'Approver'}</span>
-              {approver.required && (
-                <span className="xsw-required-badge">*</span>
-              )}
-            </div>
-          ))
-        ) : (
-          <div className="xsw-no-approvers">No approvers configured</div>
-        )}
-        {approvers.length > 3 && (
-          <div className="xsw-more-approvers">
-            +{approvers.length - 3} more
-          </div>
-        )}
-      </div>
-
-      {/* Completion info */}
-      <div className="xsw-parallel-info">
-        <div className="xsw-info-row">
-          <span className="xsw-info-label">Complete:</span>
-          <span className="xsw-info-value">{completionText}</span>
-        </div>
-        {slaHours && (
-          <div className="xsw-info-row">
-            <span className="xsw-info-label">SLA:</span>
-            <span className="xsw-info-value">{slaHours}h</span>
-          </div>
-        )}
-        {onReject && (
-          <div className="xsw-info-row">
-            <span className="xsw-info-label">On Reject:</span>
-            <span className="xsw-info-value">
-              {onReject === 'reject_all' ? 'Reject All' : 'Continue'}
+      {/* Collapsed summary */}
+      {!isExpanded && (
+        <div className="xsw-parallel-summary">
+          <span className="xsw-summary-item">
+            👥 {approvers.length} approver{approvers.length !== 1 ? 's' : ''}
+          </span>
+          <span className="xsw-summary-item">
+            {completionText}
+          </span>
+          {slaHours && (
+            <span className="xsw-summary-item">
+              ⏱ {slaHours}h
             </span>
+          )}
+        </div>
+      )}
+
+      {/* Expanded details */}
+      {isExpanded && (
+        <>
+          {/* Separator */}
+          <div className="xsw-node-separator" />
+
+          {/* Approvers list */}
+          <div className="xsw-parallel-approvers">
+            {approvers.length > 0 ? (
+              approvers.map((approver) => (
+                <div
+                  key={approver.id}
+                  className={clsx(
+                    'xsw-approver-slot',
+                    approver.required && 'required'
+                  )}
+                >
+                  <span className="xsw-approver-icon">
+                    {approver.resolver?.type === 'role' ? '👥' : '👤'}
+                  </span>
+                  <span className="xsw-approver-label">{approver.label || 'Approver'}</span>
+                  {approver.required && (
+                    <span className="xsw-required-badge">*</span>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="xsw-no-approvers">No approvers configured</div>
+            )}
           </div>
-        )}
-      </div>
+
+          {/* Completion info */}
+          <div className="xsw-parallel-info">
+            <div className="xsw-info-row">
+              <span className="xsw-info-label">Complete:</span>
+              <span className="xsw-info-value">{completionText}</span>
+            </div>
+            {slaHours && (
+              <div className="xsw-info-row">
+                <span className="xsw-info-label">SLA:</span>
+                <span className="xsw-info-value">{slaHours}h</span>
+              </div>
+            )}
+            {onReject && (
+              <div className="xsw-info-row">
+                <span className="xsw-info-label">On Reject:</span>
+                <span className="xsw-info-value">
+                  {onReject === 'reject_all' ? 'Reject All' : 'Continue'}
+                </span>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Output Handles */}
       <Handle
@@ -127,8 +154,8 @@ function ParallelApprovalNodeComponent({ data, selected }: ParallelApprovalNodeP
 
       {/* Output labels */}
       <div className="xsw-parallel-outputs">
-        <span className="xsw-output-label approve">Approved</span>
-        <span className="xsw-output-label reject">Rejected</span>
+        <span className="xsw-output-label approve">✓</span>
+        <span className="xsw-output-label reject">✗</span>
       </div>
     </div>
   );
