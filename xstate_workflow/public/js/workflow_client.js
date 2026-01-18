@@ -314,7 +314,7 @@
     var current_state = (state.current_state || '').toLowerCase();
     var status = (state.status || '').toLowerCase();
 
-    // Don't interfere with idle/draft/cancelled state - workflow not active
+    // Don't interfere with idle/draft/cancelled state - let form work normally
     if (status === 'idle' || status === 'cancelled' || current_state === 'draft') {
       return;
     }
@@ -347,8 +347,32 @@
     var edit_mode = state.edit_restriction_mode || 'None';
     var status = (state.status || '').toLowerCase();
 
-    // No restrictions if mode is None or workflow is idle/final/cancelled
+    // No restrictions - ensure form is fully enabled for idle/final/cancelled or no restrictions
     if (edit_mode === 'None' || status === 'idle' || status === 'final' || status === 'cancelled') {
+      var is_cancelled = (status === 'cancelled');
+      // Always ensure form is enabled for these statuses
+      // Use 500ms timeout to run after form setup and Cancel Workflow dialog cleanup completes
+      // (the dialog's DOM removal can interfere with button visibility if we run too early)
+      setTimeout(function() {
+        try {
+          frm.enable_save();
+          frm.set_intro('');
+          frm.workflow_edit_disabled = false;
+          // For cancelled workflows on draft docs, replace Submit with Save
+          if (is_cancelled && frm.doc.docstatus === 0 && !frm.is_new()) {
+            frm.page.clear_primary_action();
+            frm.page.set_primary_action(__('Save'), function() {
+              frm.save();
+            });
+            // Force button visibility - needed after Cancel Workflow dialog closes
+            if (frm.page.btn_primary) {
+              frm.page.btn_primary.removeClass('hidden').show();
+            }
+          }
+        } catch (e) {
+          console.log('XState Workflow: Error ensuring form enabled', e);
+        }
+      }, 500);
       return;
     }
 
@@ -562,6 +586,7 @@
                 indicator: 'green'
               }, 3);
               frm.workflow_section_added = false;
+              frm.workflow_request_pending = false;
               frm.reload_doc();
             } else {
               frappe.msgprint({
