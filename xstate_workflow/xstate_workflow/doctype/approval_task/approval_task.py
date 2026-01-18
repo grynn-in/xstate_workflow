@@ -251,12 +251,22 @@ class ApprovalTask(Document):
         # Map action to event name
         event = action.upper().replace(" ", "_")
 
+        # Check if this is a parallel approval task (node_id format: ParallelState.approver_id.pending)
+        # If so, append the approver_id to the event: APPROVE_approver_id
+        if self.node_id and "." in self.node_id:
+            parts = self.node_id.split(".")
+            if len(parts) >= 2 and parts[-1] == "pending":
+                approver_id = parts[-2]
+                if approver_id.startswith("approver_"):
+                    event = f"{event}_{approver_id}"
+
         # Data must be JSON string
         data = json.dumps({
             "task_name": self.name,
             "action": action,
             "comments": self.comments,
-            "completed_by": self.completed_by
+            "completed_by": self.completed_by,
+            "node_id": self.node_id
         })
 
         return trigger_event_sync(

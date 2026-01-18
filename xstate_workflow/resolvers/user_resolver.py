@@ -30,8 +30,9 @@ class StaticUserResolver(AssignmentResolver):
     resolver_type = "static_user"
 
     def validate_config(self) -> None:
-        if not self.config.get("user"):
-            raise ResolverConfigError("StaticUserResolver requires 'user' in config")
+        # Accept both 'user' and 'user_id' for backward compatibility with frontend
+        if not self.config.get("user") and not self.config.get("user_id"):
+            raise ResolverConfigError("StaticUserResolver requires 'user' or 'user_id' in config")
 
     def get_config_schema(self) -> dict:
         return {
@@ -47,7 +48,8 @@ class StaticUserResolver(AssignmentResolver):
         }
 
     def resolve(self, doc, context: dict = None) -> list[str]:
-        user = self.config["user"]
+        # Accept both 'user' and 'user_id' for backward compatibility
+        user = self.config.get("user") or self.config.get("user_id")
 
         # Validate user exists and is enabled
         user_doc = frappe.db.get_value(
@@ -77,8 +79,9 @@ class DocumentFieldResolver(AssignmentResolver):
     resolver_type = "document_field"
 
     def validate_config(self) -> None:
-        if not self.config.get("field"):
-            raise ResolverConfigError("DocumentFieldResolver requires 'field' in config")
+        # Accept both 'field' and 'field_name' for backward compatibility with frontend
+        if not self.config.get("field") and not self.config.get("field_name"):
+            raise ResolverConfigError("DocumentFieldResolver requires 'field' or 'field_name' in config")
 
     def get_config_schema(self) -> dict:
         return {
@@ -102,7 +105,8 @@ class DocumentFieldResolver(AssignmentResolver):
         }
 
     def resolve(self, doc, context: dict = None) -> list[str]:
-        field = self.config["field"]
+        # Accept both 'field' and 'field_name' for backward compatibility
+        field = self.config.get("field") or self.config.get("field_name")
         fallback_field = self.config.get("fallback_field")
         fallback_user = self.config.get("fallback_user")
 

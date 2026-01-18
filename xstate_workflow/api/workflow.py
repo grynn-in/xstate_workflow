@@ -221,6 +221,7 @@ def start_workflow(doctype: str, docname: str) -> dict:
 
     Used when auto_start_on_create is disabled on the State Machine,
     allowing users to explicitly start the workflow via a button.
+    Also works to restart a cancelled workflow.
 
     Parameters:
     - doctype (str): Document type name
@@ -247,15 +248,36 @@ def start_workflow(doctype: str, docname: str) -> dict:
     existing = frappe.db.get_value(
         "Machine Instance",
         {"reference_doctype": doctype, "reference_name": docname},
-        "name"
+        ["name", "status"],
+        as_dict=True
     )
 
     if existing:
-        return {
-            "success": False,
-            "message": _("Workflow already started for this document"),
-            "instance_name": existing
-        }
+        if existing.status == "cancelled":
+            # Reset the cancelled instance instead of failing
+            instance = frappe.get_doc("Machine Instance", existing.name)
+            instance.reset()
+
+            # Trigger the always transition if present (e.g., Start -> first state)
+            from xstate_workflow.workflow_engine import trigger_event_sync
+            try:
+                trigger_event_sync(doctype, docname, "xstate.always")
+            except Exception:
+                pass  # Ignore if no always transition configured
+
+            state = get_machine_state(doctype, docname)
+            return {
+                "success": True,
+                "instance_name": existing.name,
+                "current_state": state.get("current_state"),
+                "message": _("Workflow restarted successfully")
+            }
+        else:
+            return {
+                "success": False,
+                "message": _("Workflow already started for this document"),
+                "instance_name": existing.name
+            }
 
     # Check if there's an active workflow for this doctype
     machine = frappe.db.get_value(
@@ -293,6 +315,99 @@ def start_workflow(doctype: str, docname: str) -> dict:
         "success": False,
         "message": _("Failed to start workflow")
     }
+
+
+@frappe.whitelist()
+def cancel_workflow(doctype: str, docname: str, reason: str = None) -> dict:
+    """
+    Cancel a workflow instance.
+
+    Cancels all pending approval tasks and marks the workflow as cancelled.
+    After cancellation, start_workflow() can be called to restart.
+
+    Permission: Write access on the referenced document OR Workflow Manager role
+
+    Parameters:
+    - doctype (str): Document type name
+    - docname (str): Document name
+    - reason (str, optional): Reason for cancellation
+
+    Returns:
+    {
+        "success": bool,
+        "tasks_cancelled": int,
+        "message": str
+    }
+    """
+    # Check if document exists
+    if not frappe.db.exists(doctype, docname):
+        return {
+            "success": False,
+            "message": _("Document {0} {1} not found").format(doctype, docname)
+        }
+
+    # Check permissions
+    if not _can_cancel_workflow(doctype, docname):
+        frappe.throw(_("You do not have permission to cancel this workflow"), frappe.PermissionError)
+
+    # Get the workflow instance
+    instance_name = frappe.db.get_value(
+        "Machine Instance",
+        {"reference_doctype": doctype, "reference_name": docname},
+        "name"
+    )
+
+    if not instance_name:
+        return {
+            "success": False,
+            "message": _("No workflow instance found for this document")
+        }
+
+    # Get instance and check status
+    instance = frappe.get_doc("Machine Instance", instance_name)
+
+    if instance.status == "cancelled":
+        return {
+            "success": False,
+            "message": _("Workflow is already cancelled")
+        }
+
+    if instance.status == "final":
+        return {
+            "success": False,
+            "message": _("Cannot cancel a completed workflow")
+        }
+
+    # Cancel the workflow
+    try:
+        result = instance.cancel(reason)
+        return {
+            "success": True,
+            "tasks_cancelled": result.get("tasks_cancelled", 0),
+            "message": _("Workflow cancelled successfully")
+        }
+    except Exception as e:
+        frappe.log_error(f"Failed to cancel workflow: {e}")
+        return {
+            "success": False,
+            "message": _("Failed to cancel workflow: {0}").format(str(e))
+        }
+
+
+def _can_cancel_workflow(doctype: str, docname: str) -> bool:
+    """
+    Check if current user can cancel the workflow.
+
+    Returns True if user has:
+    - Workflow Manager role, OR
+    - Write access on the document
+    """
+    # Workflow Manager can always cancel
+    if "Workflow Manager" in frappe.get_roles():
+        return True
+
+    # Otherwise, need write access on the document
+    return frappe.has_permission(doctype, "write", docname)
 
 
 @frappe.whitelist()

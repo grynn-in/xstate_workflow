@@ -288,7 +288,16 @@ def get_users_with_role(role: str, tenant: str = None) -> list[str]:
         # or if their default company matches
         tenant_users = []
         for user in enabled_users:
-            user_doc = frappe.get_cached_doc("User", user)
+            # Always include Administrator - they're not restricted by tenant
+            if user == "Administrator":
+                tenant_users.append(user)
+                continue
+
+            # System Manager users are typically not restricted by tenant either
+            user_roles = frappe.get_roles(user)
+            if "System Manager" in user_roles:
+                tenant_users.append(user)
+                continue
 
             # Check default company
             if frappe.db.get_default("company", user) == tenant:

@@ -244,3 +244,43 @@ class MachineInstance(Document):
         }])
         self.save()
         return {"success": True, "state": self.current_state}
+
+    @frappe.whitelist()
+    def cancel(self, reason: str = None):
+        """
+        Cancel this workflow instance.
+
+        Cancels all pending approval tasks and marks the workflow as cancelled.
+        After cancellation, the workflow can be restarted using start_workflow().
+
+        Args:
+            reason: Optional reason for cancellation
+
+        Returns:
+            Dict with success status and number of tasks cancelled
+        """
+        from xstate_workflow.approval import cancel_pending_tasks
+
+        # Cancel all pending approval tasks
+        cancelled_tasks = cancel_pending_tasks(self.name)
+
+        # Update status
+        old_state = self.current_state
+        self.status = "cancelled"
+
+        # Log the cancellation
+        log = json.loads(self.transition_log or "[]")
+        log.append({
+            "timestamp": str(frappe.utils.now()),
+            "event": "CANCEL",
+            "from_state": old_state,
+            "to_state": None,
+            "success": True,
+            "user": frappe.session.user,
+            "reason": reason,
+            "tasks_cancelled": cancelled_tasks
+        })
+        self.transition_log = json.dumps(log[-100:])
+        self.save()
+
+        return {"success": True, "tasks_cancelled": cancelled_tasks}

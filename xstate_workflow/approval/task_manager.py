@@ -326,14 +326,19 @@ def get_my_approval_tasks(
     """
     user = user or frappe.session.user
     user_roles = frappe.get_roles(user)
+    is_system_manager = "System Manager" in user_roles
 
     # Handle new user-centric status types
     if status == "pending_with_me":
         # Tasks assigned to user (direct or role) that are pending
+        # System Manager can see ALL pending tasks (can claim any)
         base_filters = {"status": "Pending"}
-        or_filters = [{"assigned_to": user}]
-        if user_roles:
-            or_filters.append({"assigned_role": ["in", user_roles]})
+        if is_system_manager:
+            or_filters = None  # No filter - show all pending tasks
+        else:
+            or_filters = [{"assigned_to": user}]
+            if user_roles:
+                or_filters.append({"assigned_role": ["in", user_roles]})
 
     elif status == "overdue_with_me":
         # Pending tasks that are past due date

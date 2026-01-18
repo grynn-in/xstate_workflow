@@ -218,15 +218,14 @@ export async function getDocTypeFields(doctype: string): Promise<FrappeField[]> 
 
   try {
     // Use frappe.xcall to get doc meta which includes all fields
+    // frappe.client.get returns the document directly, not wrapped in a docs array
     const meta = await frappe.xcall<{
-      docs: Array<{
-        fields: Array<{
-          fieldname: string;
-          fieldtype: string;
-          label: string;
-          options?: string;
-          reqd?: number;
-        }>;
+      fields: Array<{
+        fieldname: string;
+        fieldtype: string;
+        label: string;
+        options?: string;
+        reqd?: number;
       }>;
     }>(
       'frappe.client.get',
@@ -236,7 +235,7 @@ export async function getDocTypeFields(doctype: string): Promise<FrappeField[]> 
       }
     );
 
-    if (!meta?.docs?.[0]?.fields) {
+    if (!meta?.fields) {
       return [];
     }
 
@@ -248,7 +247,7 @@ export async function getDocTypeFields(doctype: string): Promise<FrappeField[]> 
       'Duration', 'Color', 'Percent', 'Dynamic Link'
     ];
 
-    return meta.docs[0].fields
+    return meta.fields
       .filter(f => dataFieldTypes.includes(f.fieldtype))
       .map(f => ({
         fieldname: f.fieldname,
@@ -463,6 +462,61 @@ export async function testAgenticNode(
       doctype,
       docname,
       agent_config: JSON.stringify(agentConfig),
+    }
+  );
+}
+
+/**
+ * Cancel a workflow instance
+ */
+export interface CancelWorkflowResponse {
+  success: boolean;
+  tasks_cancelled?: number;
+  message?: string;
+}
+
+export async function cancelWorkflow(
+  doctype: string,
+  docname: string,
+  reason?: string
+): Promise<CancelWorkflowResponse> {
+  if (!frappe) {
+    throw new Error('Frappe not available');
+  }
+
+  return frappe.xcall<CancelWorkflowResponse>(
+    'xstate_workflow.api.workflow.cancel_workflow',
+    {
+      doctype,
+      docname,
+      reason,
+    }
+  );
+}
+
+/**
+ * Start a workflow for a document (or restart after cancellation)
+ */
+export interface StartWorkflowResponse {
+  success: boolean;
+  instance_name?: string;
+  current_state?: string;
+  message?: string;
+}
+
+export async function startWorkflow(
+  doctype: string,
+  docname: string
+): Promise<StartWorkflowResponse> {
+  if (!frappe) {
+    throw new Error('Frappe not available');
+  }
+
+  return frappe.xcall<StartWorkflowResponse>(
+    'xstate_workflow.api.workflow.start_workflow',
+    {
+      doctype,
+      docname,
     }
   );
 }

@@ -2482,9 +2482,14 @@ def validate_workflow_state_for_submit(doc, method=None):
     current_state = instance.get("current_state", "")
     status = instance.get("status", "")
 
-    # If workflow is cancelled, allow normal submission (workflow no longer controls document)
+    # If workflow is cancelled, block submission - user must restart workflow
     if status == "cancelled":
-        return
+        frappe.throw(
+            _("Cannot submit {0} {1}: Workflow was cancelled. Please restart the workflow to submit.").format(
+                doc.doctype, doc.name
+            ),
+            title=_("Workflow Cancelled")
+        )
 
     # Check if the current state has allowsSubmit set in the workflow config
     allows_submit = False

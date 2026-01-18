@@ -81,7 +81,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "idle\nactive\nfinal\nerror\narchived"
+   "options": "idle\nactive\nfinal\nerror\narchived\ncancelled"
   },
   {
    "fieldname": "current_state",
