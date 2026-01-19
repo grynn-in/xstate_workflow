@@ -1210,16 +1210,16 @@ class ToolRegistry:
 			"""
 			start_time = time.time()
 
-			# Rate limit check
-			allowed, error_msg = registry._check_rate_limit("reddit_post")
-			if not allowed:
-				return {"success": False, "error": error_msg}
-
-			# Validate input
+			# Validate input first (before rate limiting)
 			if not subreddit or not title:
 				return {"success": False, "error": "subreddit and title are required"}
 			if not text and not url:
 				return {"success": False, "error": "Either text or url is required"}
+
+			# Rate limit check
+			allowed, error_msg = registry._check_rate_limit("reddit_post")
+			if not allowed:
+				return {"success": False, "error": error_msg}
 
 			# Get credentials from site_config
 			client_id = _resolve_credential("config:reddit_client_id")
