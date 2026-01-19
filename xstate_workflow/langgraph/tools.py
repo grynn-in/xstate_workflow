@@ -122,6 +122,10 @@ class ToolRegistry:
 		"calculator": 100,
 		"code_executor": 10,
 		"rest_endpoint": 30,
+		"twitter_post": 10,
+		"linkedin_post": 10,
+		"facebook_post": 10,
+		"reddit_post": 5,
 	}
 
 	def __init__(
@@ -272,6 +276,18 @@ class ToolRegistry:
 
 			elif tool_name == "code_executor":
 				tools.append(self._create_code_executor_tool())
+
+			elif tool_name == "twitter_post":
+				tools.append(self._create_twitter_post_tool())
+
+			elif tool_name == "linkedin_post":
+				tools.append(self._create_linkedin_post_tool())
+
+			elif tool_name == "facebook_post":
+				tools.append(self._create_facebook_post_tool())
+
+			elif tool_name == "reddit_post":
+				tools.append(self._create_reddit_post_tool())
 
 		# MCP tools from enabled MCP servers
 		mcp_tools = self._get_mcp_tools()
@@ -900,6 +916,393 @@ class ToolRegistry:
 				safe_builtins["print"] = original_print
 
 		return code_executor
+
+	def _create_twitter_post_tool(self):
+		"""Create Twitter/X posting tool."""
+		try:
+			from langchain_core.tools import tool
+		except ImportError:
+			frappe.throw(_("langchain_core is not installed. Run: pip install langchain-core"))
+
+		import time
+
+		import requests
+
+		registry = self
+		doctype = self.doctype
+		docname = self.docname
+
+		@tool
+		def twitter_post(text: str, reply_to: str = None) -> dict:
+			"""Post a tweet to Twitter/X.
+
+			Args:
+				text: Tweet text (max 280 characters)
+				reply_to: Optional tweet ID to reply to
+
+			Returns:
+				dict with tweet_id and url on success, or error message
+			"""
+			start_time = time.time()
+
+			# Rate limit check
+			allowed, error_msg = registry._check_rate_limit("twitter_post")
+			if not allowed:
+				return {"success": False, "error": error_msg}
+
+			# Validate input
+			if not text or len(text) > 280:
+				return {"success": False, "error": "Tweet must be 1-280 characters"}
+
+			# Get credentials from site_config
+			bearer_token = _resolve_credential("config:twitter_bearer_token")
+			if not bearer_token:
+				return {"success": False, "error": "Twitter credentials not configured in site_config.json"}
+
+			try:
+				payload = {"text": text}
+				if reply_to:
+					payload["reply"] = {"in_reply_to_tweet_id": reply_to}
+
+				response = requests.post(
+					"https://api.twitter.com/2/tweets",
+					headers={
+						"Authorization": f"Bearer {bearer_token}",
+						"Content-Type": "application/json",
+					},
+					json=payload,
+					timeout=30,
+				)
+
+				duration_ms = (time.time() - start_time) * 1000
+
+				if response.ok:
+					data = response.json()
+					tweet_id = data.get("data", {}).get("id")
+					result = {
+						"success": True,
+						"tweet_id": tweet_id,
+						"url": f"https://twitter.com/i/status/{tweet_id}",
+					}
+					log_tool_call(
+						"twitter_post", doctype, docname,
+						{"text": text[:50]}, str(result), duration_ms, True
+					)
+					return result
+				else:
+					error = f"Twitter API error: {response.status_code} - {response.text}"
+					log_tool_call(
+						"twitter_post", doctype, docname,
+						{"text": text[:50]}, None, duration_ms, False, error
+					)
+					return {"success": False, "error": error}
+
+			except Exception as e:
+				log_tool_call(
+					"twitter_post", doctype, docname,
+					{"text": text[:50]}, None, 0, False, str(e)
+				)
+				return {"success": False, "error": str(e)}
+
+		return twitter_post
+
+	def _create_linkedin_post_tool(self):
+		"""Create LinkedIn posting tool."""
+		try:
+			from langchain_core.tools import tool
+		except ImportError:
+			frappe.throw(_("langchain_core is not installed. Run: pip install langchain-core"))
+
+		import time
+
+		import requests
+
+		registry = self
+		doctype = self.doctype
+		docname = self.docname
+
+		@tool
+		def linkedin_post(text: str, visibility: str = "PUBLIC") -> dict:
+			"""Post to LinkedIn.
+
+			Args:
+				text: Post content
+				visibility: "PUBLIC", "CONNECTIONS", or "LOGGED_IN"
+
+			Returns:
+				dict with post_id on success, or error message
+			"""
+			start_time = time.time()
+
+			# Rate limit check
+			allowed, error_msg = registry._check_rate_limit("linkedin_post")
+			if not allowed:
+				return {"success": False, "error": error_msg}
+
+			# Get credentials from site_config
+			access_token = _resolve_credential("config:linkedin_access_token")
+			person_urn = _resolve_credential("config:linkedin_person_urn")
+
+			if not access_token or not person_urn:
+				return {"success": False, "error": "LinkedIn credentials not configured in site_config.json"}
+
+			try:
+				payload = {
+					"author": person_urn,
+					"lifecycleState": "PUBLISHED",
+					"specificContent": {
+						"com.linkedin.ugc.ShareContent": {
+							"shareCommentary": {"text": text},
+							"shareMediaCategory": "NONE",
+						}
+					},
+					"visibility": {"com.linkedin.ugc.MemberNetworkVisibility": visibility},
+				}
+
+				response = requests.post(
+					"https://api.linkedin.com/v2/ugcPosts",
+					headers={
+						"Authorization": f"Bearer {access_token}",
+						"Content-Type": "application/json",
+						"X-Restli-Protocol-Version": "2.0.0",
+					},
+					json=payload,
+					timeout=30,
+				)
+
+				duration_ms = (time.time() - start_time) * 1000
+
+				if response.ok:
+					post_id = response.headers.get("x-restli-id", "")
+					result = {"success": True, "post_id": post_id}
+					log_tool_call(
+						"linkedin_post", doctype, docname,
+						{"text": text[:50]}, str(result), duration_ms, True
+					)
+					return result
+				else:
+					error = f"LinkedIn API error: {response.status_code} - {response.text}"
+					log_tool_call(
+						"linkedin_post", doctype, docname,
+						{"text": text[:50]}, None, duration_ms, False, error
+					)
+					return {"success": False, "error": error}
+
+			except Exception as e:
+				log_tool_call(
+					"linkedin_post", doctype, docname,
+					{"text": text[:50]}, None, 0, False, str(e)
+				)
+				return {"success": False, "error": str(e)}
+
+		return linkedin_post
+
+	def _create_facebook_post_tool(self):
+		"""Create Facebook page posting tool."""
+		try:
+			from langchain_core.tools import tool
+		except ImportError:
+			frappe.throw(_("langchain_core is not installed. Run: pip install langchain-core"))
+
+		import time
+
+		import requests
+
+		registry = self
+		doctype = self.doctype
+		docname = self.docname
+
+		@tool
+		def facebook_post(message: str, link: str = None) -> dict:
+			"""Post to a Facebook Page.
+
+			Args:
+				message: Post content
+				link: Optional URL to share
+
+			Returns:
+				dict with post_id on success, or error message
+			"""
+			start_time = time.time()
+
+			# Rate limit check
+			allowed, error_msg = registry._check_rate_limit("facebook_post")
+			if not allowed:
+				return {"success": False, "error": error_msg}
+
+			# Get credentials from site_config
+			page_access_token = _resolve_credential("config:facebook_page_access_token")
+			page_id = _resolve_credential("config:facebook_page_id")
+
+			if not page_access_token or not page_id:
+				return {"success": False, "error": "Facebook credentials not configured in site_config.json"}
+
+			try:
+				payload = {"message": message, "access_token": page_access_token}
+				if link:
+					payload["link"] = link
+
+				response = requests.post(
+					f"https://graph.facebook.com/v18.0/{page_id}/feed",
+					data=payload,
+					timeout=30,
+				)
+
+				duration_ms = (time.time() - start_time) * 1000
+
+				if response.ok:
+					data = response.json()
+					post_id = data.get("id", "")
+					result = {
+						"success": True,
+						"post_id": post_id,
+						"url": f"https://facebook.com/{post_id}",
+					}
+					log_tool_call(
+						"facebook_post", doctype, docname,
+						{"message": message[:50]}, str(result), duration_ms, True
+					)
+					return result
+				else:
+					error = f"Facebook API error: {response.status_code} - {response.text}"
+					log_tool_call(
+						"facebook_post", doctype, docname,
+						{"message": message[:50]}, None, duration_ms, False, error
+					)
+					return {"success": False, "error": error}
+
+			except Exception as e:
+				log_tool_call(
+					"facebook_post", doctype, docname,
+					{"message": message[:50]}, None, 0, False, str(e)
+				)
+				return {"success": False, "error": str(e)}
+
+		return facebook_post
+
+	def _create_reddit_post_tool(self):
+		"""Create Reddit posting tool."""
+		try:
+			from langchain_core.tools import tool
+		except ImportError:
+			frappe.throw(_("langchain_core is not installed. Run: pip install langchain-core"))
+
+		import time
+
+		import requests
+
+		registry = self
+		doctype = self.doctype
+		docname = self.docname
+
+		@tool
+		def reddit_post(subreddit: str, title: str, text: str = None, url: str = None) -> dict:
+			"""Post to a Reddit subreddit.
+
+			Args:
+				subreddit: Subreddit name without r/ (e.g., "Accounting", "Big4")
+				title: Post title
+				text: Post body text (for text posts)
+				url: URL to share (for link posts)
+
+			Returns:
+				dict with post_id and url on success, or error message
+			"""
+			start_time = time.time()
+
+			# Rate limit check
+			allowed, error_msg = registry._check_rate_limit("reddit_post")
+			if not allowed:
+				return {"success": False, "error": error_msg}
+
+			# Validate input
+			if not subreddit or not title:
+				return {"success": False, "error": "subreddit and title are required"}
+			if not text and not url:
+				return {"success": False, "error": "Either text or url is required"}
+
+			# Get credentials from site_config
+			client_id = _resolve_credential("config:reddit_client_id")
+			client_secret = _resolve_credential("config:reddit_client_secret")
+			username = _resolve_credential("config:reddit_username")
+			password = _resolve_credential("config:reddit_password")
+
+			if not all([client_id, client_secret, username, password]):
+				return {"success": False, "error": "Reddit credentials not configured in site_config.json"}
+
+			try:
+				# Get OAuth token
+				auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
+				token_response = requests.post(
+					"https://www.reddit.com/api/v1/access_token",
+					auth=auth,
+					data={
+						"grant_type": "password",
+						"username": username,
+						"password": password,
+					},
+					headers={"User-Agent": "XStateWorkflow/1.0"},
+					timeout=30,
+				)
+
+				if not token_response.ok:
+					return {"success": False, "error": f"Reddit auth failed: {token_response.text}"}
+
+				access_token = token_response.json().get("access_token")
+
+				# Submit post
+				post_data = {
+					"sr": subreddit,
+					"title": title,
+					"kind": "link" if url else "self",
+				}
+				if url:
+					post_data["url"] = url
+				else:
+					post_data["text"] = text
+
+				response = requests.post(
+					"https://oauth.reddit.com/api/submit",
+					headers={
+						"Authorization": f"Bearer {access_token}",
+						"User-Agent": "XStateWorkflow/1.0",
+					},
+					data=post_data,
+					timeout=30,
+				)
+
+				duration_ms = (time.time() - start_time) * 1000
+
+				if response.ok:
+					data = response.json()
+					post_url = data.get("json", {}).get("data", {}).get("url", "")
+					post_id = data.get("json", {}).get("data", {}).get("id", "")
+					result = {
+						"success": True,
+						"post_id": post_id,
+						"url": post_url,
+					}
+					log_tool_call(
+						"reddit_post", doctype, docname,
+						{"subreddit": subreddit, "title": title[:50]}, str(result), duration_ms, True
+					)
+					return result
+				else:
+					error = f"Reddit API error: {response.status_code} - {response.text}"
+					log_tool_call(
+						"reddit_post", doctype, docname,
+						{"subreddit": subreddit, "title": title[:50]}, None, duration_ms, False, error
+					)
+					return {"success": False, "error": error}
+
+			except Exception as e:
+				log_tool_call(
+					"reddit_post", doctype, docname,
+					{"subreddit": subreddit}, None, 0, False, str(e)
+				)
+				return {"success": False, "error": str(e)}
+
+		return reddit_post
 
 
 def get_frappe_tools(
