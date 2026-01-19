@@ -8,3 +8,6 @@ export type {
   TransitionLogEntry,
   AvailableEvent,
 } from './useInstanceViewer';
+
+export { useAutoLayout } from '../layout/useAutoLayout';
+export type { UseAutoLayoutOptions } from '../layout/useAutoLayout';

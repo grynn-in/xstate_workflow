@@ -1,6 +1,11 @@
 import { TransitionEdge } from './TransitionEdge';
 
-export { TransitionEdge, type TransitionEdgeProps } from './TransitionEdge';
+export {
+  TransitionEdge,
+  type TransitionEdgeProps,
+  type RuntimeEdgeData,
+  type EdgePathType,
+} from './TransitionEdge';
 
 // Edge type mapping for React Flow registration
 export const edgeTypes = {

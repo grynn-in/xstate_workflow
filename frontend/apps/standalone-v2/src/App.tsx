@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef, type DragEvent } from 'react';
+import { useCallback, useEffect, useState, useRef, useMemo, type DragEvent } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -24,12 +24,13 @@ import {
   useHelperLines,
   workflowToXState,
   xstateToWorkflow,
-  calculateAutoLayout,
+  elkLayout,
   type WorkflowBuilderConfig,
   type WorkflowNode,
   type WorkflowEdge,
   type XStateNodeType,
   type FrappeField,
+  type EdgePathType,
 } from '@xstate-workflow/core-v2';
 import '@xstate-workflow/core/styles';
 import '@xstate-workflow/core-v2/styles';
@@ -73,6 +74,9 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
 
   // Workflow list for selector
   const [workflowsList, setWorkflowsList] = useState<MachineListItem[]>([]);
+
+  // Edge style toggle (bezier = curved with draggable control, smoothstep = orthogonal)
+  const [edgePathType, setEdgePathType] = useState<EdgePathType>('bezier');
 
   const {
     nodes,
@@ -134,6 +138,17 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
       takeSnapshot();
     },
   });
+
+  // Apply edge path type to all edges
+  const edgesWithPathType = useMemo(() => {
+    return edges.map((edge) => ({
+      ...edge,
+      data: {
+        ...edge.data,
+        edgePathType,
+      },
+    }));
+  }, [edges, edgePathType]);
 
   // Helper lines for node alignment
   const {
@@ -444,37 +459,37 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     }
   }, [selectedNode, selectedEdge, setNodes, setEdges, setSelectedNode, setSelectedEdge, takeSnapshot]);
 
-  // Handle auto-layout
-  const handleAutoLayout = useCallback(() => {
-    // Convert current workflow to XState config to calculate layout
-    const config = getConfig();
-    const xstate = workflowToXState(config);
+  // Handle auto-layout using ELK algorithm
+  const handleAutoLayout = useCallback(async () => {
+    if (nodes.length === 0) return;
 
-    // Calculate new positions using auto-layout algorithm
-    const newPositions = calculateAutoLayout(xstate);
-
-    // Update node positions
-    setNodes((prevNodes) =>
-      prevNodes.map((node) => {
-        const stateName = node.data?.stateName || node.data?.label || node.id;
-        const newPos = newPositions.get(stateName);
-        if (newPos) {
-          return { ...node, position: newPos };
+    try {
+      // Run ELK layout algorithm
+      const { nodes: layoutNodes } = await elkLayout(
+        nodes.map((n) => ({ ...n })),
+        edges.map((e) => ({ ...e })),
+        {
+          direction: 'LR', // Left-to-right for workflows
+          spacing: [120, 200], // [nodeToNode, betweenLayers]
         }
-        return node;
-      })
-    );
+      );
 
-    setHasUnsavedChanges(true);
-    takeSnapshot();
+      // Update node positions
+      setNodes(layoutNodes);
 
-    // Fit view after layout
-    if (reactFlowInstance) {
-      setTimeout(() => {
-        reactFlowInstance.fitView({ padding: 0.2 });
-      }, 50);
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+
+      // Fit view after layout
+      if (reactFlowInstance) {
+        setTimeout(() => {
+          reactFlowInstance.fitView({ padding: 0.2 });
+        }, 50);
+      }
+    } catch (error) {
+      console.error('ELK layout error:', error);
     }
-  }, [getConfig, setNodes, takeSnapshot, reactFlowInstance]);
+  }, [nodes, edges, setNodes, takeSnapshot, reactFlowInstance]);
 
   // Handle add node from palette (click)
   const handleAddNode = useCallback(
@@ -624,11 +639,22 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
               className="xsw-button xsw-button-secondary"
               onClick={handleAutoLayout}
               disabled={nodes.length === 0}
-              title="Auto-arrange nodes left-to-right"
+              title="Auto-arrange nodes using ELK layered algorithm"
               style={{ marginRight: '8px' }}
             >
               Auto-layout
             </button>
+            {/* Edge style toggle */}
+            <select
+              className="xsw-select"
+              value={edgePathType}
+              onChange={(e) => setEdgePathType(e.target.value as EdgePathType)}
+              style={{ width: '110px', marginRight: '8px' }}
+              title="Edge drawing style"
+            >
+              <option value="bezier">Bezier</option>
+              <option value="smoothstep">Orthogonal</option>
+            </select>
             <button
               className="xsw-button xsw-button-secondary"
               onClick={handleExport}
@@ -663,7 +689,7 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
         <div className="xsw-layout-canvas" ref={reactFlowWrapper}>
           <ReactFlow
             nodes={nodes}
-            edges={edges}
+            edges={edgesWithPathType}
             nodeTypes={allNodeTypes}
             edgeTypes={edgeTypes}
             onNodesChange={onNodesChange}
@@ -680,6 +706,7 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
             className="xsw-canvas"
             defaultEdgeOptions={{
               type: 'transition',
+              data: { edgePathType },
             }}
           >
             <Controls />
