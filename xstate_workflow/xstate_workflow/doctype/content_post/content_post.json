@@ -4,42 +4,46 @@
 	"autoname": "format:CP-{####}",
 	"creation": "2024-01-01 00:00:00.000000",
 	"doctype": "DocType",
-	"editable_grid": 1,
 	"engine": "InnoDB",
 	"field_order": [
-		"title",
-		"topic",
+		"section_input",
+		"industry_focus",
+		"content_themes",
 		"column_break_input",
 		"target_platforms",
 		"target_audience",
-		"section_generated",
-		"generated_content",
-		"column_break_versions",
+		"section_ai_generated",
+		"title",
+		"topic",
+		"column_break_content",
 		"twitter_version",
 		"linkedin_version",
 		"newsletter_version",
 		"hashtags",
-		"section_scheduling",
-		"posting_schedule",
-		"column_break_status",
+		"section_status",
 		"status",
-		"section_results",
+		"column_break_status",
 		"reviewer_notes",
 		"published_urls"
 	],
 	"fields": [
 		{
-			"fieldname": "title",
-			"fieldtype": "Data",
-			"in_list_view": 1,
-			"label": "Title",
-			"reqd": 1
+			"fieldname": "section_input",
+			"fieldtype": "Section Break",
+			"label": "Configuration (Your Input)"
 		},
 		{
-			"fieldname": "topic",
+			"fieldname": "industry_focus",
+			"fieldtype": "Select",
+			"label": "Industry Focus",
+			"options": "Accounting & Finance\nTechnology\nHealthcare\nLegal\nMarketing\nReal Estate\nE-commerce\nManufacturing\nCustom",
+			"default": "Accounting & Finance"
+		},
+		{
+			"fieldname": "content_themes",
 			"fieldtype": "Small Text",
-			"label": "Topic/Brief",
-			"reqd": 1
+			"label": "Content Themes",
+			"description": "Optional hints: AI trends, Tax updates, Productivity (comma-separated)"
 		},
 		{
 			"fieldname": "column_break_input",
@@ -49,32 +53,43 @@
 			"fieldname": "target_platforms",
 			"fieldtype": "Select",
 			"label": "Target Platforms",
-			"options": "\nLinkedIn\nTwitter\nNewsletter\nLinkedIn, Twitter\nLinkedIn, Newsletter\nTwitter, Newsletter\nLinkedIn, Twitter, Newsletter"
+			"options": "LinkedIn\nTwitter\nNewsletter\nLinkedIn, Twitter\nLinkedIn, Newsletter\nTwitter, Newsletter\nLinkedIn, Twitter, Newsletter",
+			"default": "LinkedIn, Twitter, Newsletter"
 		},
 		{
 			"fieldname": "target_audience",
 			"fieldtype": "Small Text",
-			"label": "Target Audience"
+			"label": "Target Audience",
+			"description": "e.g., CFOs, Small business owners"
 		},
 		{
-			"fieldname": "section_generated",
+			"fieldname": "section_ai_generated",
 			"fieldtype": "Section Break",
-			"label": "Generated Content"
+			"label": "AI Generated Content"
 		},
 		{
-			"fieldname": "generated_content",
-			"fieldtype": "Text Editor",
-			"label": "Main Content"
+			"fieldname": "title",
+			"fieldtype": "Data",
+			"label": "Title",
+			"in_list_view": 1,
+			"read_only_depends_on": "eval:doc.status !== 'Review'",
+			"description": "AI generates this"
 		},
 		{
-			"fieldname": "column_break_versions",
+			"fieldname": "topic",
+			"fieldtype": "Small Text",
+			"label": "Topic Brief",
+			"description": "AI generates this"
+		},
+		{
+			"fieldname": "column_break_content",
 			"fieldtype": "Column Break"
 		},
 		{
-			"description": "Max 280 characters",
 			"fieldname": "twitter_version",
 			"fieldtype": "Small Text",
-			"label": "Twitter Version"
+			"label": "Twitter Version",
+			"description": "Max 280 characters"
 		},
 		{
 			"fieldname": "linkedin_version",
@@ -92,32 +107,21 @@
 			"label": "Hashtags"
 		},
 		{
-			"fieldname": "section_scheduling",
+			"fieldname": "section_status",
 			"fieldtype": "Section Break",
-			"label": "Scheduling"
+			"label": "Status"
 		},
 		{
-			"fieldname": "posting_schedule",
-			"fieldtype": "Datetime",
-			"label": "Schedule For"
+			"fieldname": "status",
+			"fieldtype": "Select",
+			"label": "Status",
+			"options": "Researching\nGenerating\nReview\nApproved\nPublishing\nPublished\nFailed",
+			"default": "Researching",
+			"in_list_view": 1
 		},
 		{
 			"fieldname": "column_break_status",
 			"fieldtype": "Column Break"
-		},
-		{
-			"default": "Draft",
-			"fieldname": "status",
-			"fieldtype": "Select",
-			"in_list_view": 1,
-			"label": "Status",
-			"options": "Draft\nGenerating\nReview\nApproved\nScheduled\nPublishing\nPublished\nFailed"
-		},
-		{
-			"collapsible": 1,
-			"fieldname": "section_results",
-			"fieldtype": "Section Break",
-			"label": "Results"
 		},
 		{
 			"fieldname": "reviewer_notes",
@@ -154,17 +158,11 @@
 		},
 		{
 			"create": 1,
-			"email": 1,
-			"export": 1,
-			"print": 1,
 			"read": 1,
-			"report": 1,
-			"role": "All",
-			"share": 1,
-			"write": 1
+			"write": 1,
+			"role": "All"
 		}
 	],
-	"search_fields": "title,status,target_platforms",
 	"sort_field": "modified",
 	"sort_order": "DESC",
 	"states": [],
