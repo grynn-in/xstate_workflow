@@ -1,0 +1,172 @@
+{
+	"actions": [],
+	"allow_rename": 0,
+	"autoname": "format:CP-{####}",
+	"creation": "2024-01-01 00:00:00.000000",
+	"doctype": "DocType",
+	"editable_grid": 1,
+	"engine": "InnoDB",
+	"field_order": [
+		"title",
+		"topic",
+		"column_break_input",
+		"target_platforms",
+		"target_audience",
+		"section_generated",
+		"generated_content",
+		"column_break_versions",
+		"twitter_version",
+		"linkedin_version",
+		"newsletter_version",
+		"hashtags",
+		"section_scheduling",
+		"posting_schedule",
+		"column_break_status",
+		"status",
+		"section_results",
+		"reviewer_notes",
+		"published_urls"
+	],
+	"fields": [
+		{
+			"fieldname": "title",
+			"fieldtype": "Data",
+			"in_list_view": 1,
+			"label": "Title",
+			"reqd": 1
+		},
+		{
+			"fieldname": "topic",
+			"fieldtype": "Small Text",
+			"label": "Topic/Brief",
+			"reqd": 1
+		},
+		{
+			"fieldname": "column_break_input",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "target_platforms",
+			"fieldtype": "Select",
+			"label": "Target Platforms",
+			"options": "\nLinkedIn\nTwitter\nNewsletter\nLinkedIn, Twitter\nLinkedIn, Newsletter\nTwitter, Newsletter\nLinkedIn, Twitter, Newsletter"
+		},
+		{
+			"fieldname": "target_audience",
+			"fieldtype": "Small Text",
+			"label": "Target Audience"
+		},
+		{
+			"fieldname": "section_generated",
+			"fieldtype": "Section Break",
+			"label": "Generated Content"
+		},
+		{
+			"fieldname": "generated_content",
+			"fieldtype": "Text Editor",
+			"label": "Main Content"
+		},
+		{
+			"fieldname": "column_break_versions",
+			"fieldtype": "Column Break"
+		},
+		{
+			"description": "Max 280 characters",
+			"fieldname": "twitter_version",
+			"fieldtype": "Small Text",
+			"label": "Twitter Version"
+		},
+		{
+			"fieldname": "linkedin_version",
+			"fieldtype": "Text",
+			"label": "LinkedIn Version"
+		},
+		{
+			"fieldname": "newsletter_version",
+			"fieldtype": "Text Editor",
+			"label": "Newsletter Version"
+		},
+		{
+			"fieldname": "hashtags",
+			"fieldtype": "Data",
+			"label": "Hashtags"
+		},
+		{
+			"fieldname": "section_scheduling",
+			"fieldtype": "Section Break",
+			"label": "Scheduling"
+		},
+		{
+			"fieldname": "posting_schedule",
+			"fieldtype": "Datetime",
+			"label": "Schedule For"
+		},
+		{
+			"fieldname": "column_break_status",
+			"fieldtype": "Column Break"
+		},
+		{
+			"default": "Draft",
+			"fieldname": "status",
+			"fieldtype": "Select",
+			"in_list_view": 1,
+			"label": "Status",
+			"options": "Draft\nGenerating\nReview\nApproved\nScheduled\nPublishing\nPublished\nFailed"
+		},
+		{
+			"collapsible": 1,
+			"fieldname": "section_results",
+			"fieldtype": "Section Break",
+			"label": "Results"
+		},
+		{
+			"fieldname": "reviewer_notes",
+			"fieldtype": "Small Text",
+			"label": "Reviewer Notes"
+		},
+		{
+			"fieldname": "published_urls",
+			"fieldtype": "Code",
+			"label": "Published URLs",
+			"options": "JSON"
+		}
+	],
+	"index_web_pages_for_search": 1,
+	"links": [],
+	"modified": "2024-01-01 00:00:00.000000",
+	"modified_by": "Administrator",
+	"module": "Xstate Workflow",
+	"name": "Content Post",
+	"naming_rule": "Expression",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "All",
+			"share": 1,
+			"write": 1
+		}
+	],
+	"search_fields": "title,status,target_platforms",
+	"sort_field": "modified",
+	"sort_order": "DESC",
+	"states": [],
+	"track_changes": 1
+}

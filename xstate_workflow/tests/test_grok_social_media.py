@@ -756,6 +756,139 @@ class TestRedditPostTool(FrappeTestCase):
 			self.skipTest("langchain_core not installed")
 
 
+class TestSendNewsletterTool(FrappeTestCase):
+	"""Tests for Newsletter sending tool."""
+
+	def setUp(self):
+		"""Set up test fixtures."""
+		self.doctype = "ToDo"
+		self.docname = "test-newsletter-doc"
+
+	@patch("frappe.sendmail")
+	@patch("frappe.get_all")
+	def test_send_newsletter_success(self, mock_get_all, mock_sendmail):
+		"""Test successful newsletter sending."""
+		from xstate_workflow.langgraph.tools import ToolRegistry
+
+		# Mock subscribers
+		mock_get_all.return_value = ["user1@example.com", "user2@example.com", "user3@example.com"]
+
+		registry = ToolRegistry(
+			frappe_access="none",
+			allowed_methods=[],
+			doc={},
+			doctype=self.doctype,
+			docname=self.docname,
+		)
+
+		try:
+			tool = registry._create_send_newsletter_tool()
+			result = tool.invoke({
+				"subject": "Weekly Newsletter",
+				"content": "<h1>Hello!</h1><p>This is our newsletter.</p>",
+				"subscriber_list": "Default"
+			})
+
+			self.assertTrue(result["success"])
+			self.assertEqual(result["sent_to"], 3)
+			self.assertEqual(result["subscriber_list"], "Default")
+
+			# Verify sendmail was called
+			mock_sendmail.assert_called_once()
+			call_kwargs = mock_sendmail.call_args
+			self.assertEqual(len(call_kwargs.kwargs["recipients"]), 3)
+			self.assertEqual(call_kwargs.kwargs["subject"], "Weekly Newsletter")
+		except (ImportError, frappe.ValidationError):
+			self.skipTest("langchain_core not installed")
+
+	@patch("frappe.get_all")
+	def test_send_newsletter_no_subscribers(self, mock_get_all):
+		"""Test newsletter fails with no subscribers."""
+		from xstate_workflow.langgraph.tools import ToolRegistry
+
+		# Mock empty subscriber list
+		mock_get_all.return_value = []
+
+		registry = ToolRegistry(
+			frappe_access="none",
+			allowed_methods=[],
+			doc={},
+			doctype=self.doctype,
+			docname=self.docname,
+		)
+
+		try:
+			tool = registry._create_send_newsletter_tool()
+			result = tool.invoke({
+				"subject": "Test Newsletter",
+				"content": "Content",
+				"subscriber_list": "NonExistent"
+			})
+
+			self.assertFalse(result["success"])
+			self.assertIn("No subscribers", result["error"])
+		except (ImportError, frappe.ValidationError):
+			self.skipTest("langchain_core not installed")
+
+	def test_send_newsletter_validates_required_fields(self):
+		"""Test newsletter validates subject and content are required."""
+		from xstate_workflow.langgraph.tools import ToolRegistry
+
+		registry = ToolRegistry(
+			frappe_access="none",
+			allowed_methods=[],
+			doc={},
+			doctype=self.doctype,
+			docname=self.docname,
+		)
+
+		try:
+			tool = registry._create_send_newsletter_tool()
+
+			# Missing subject
+			result = tool.invoke({"subject": "", "content": "Content"})
+			self.assertFalse(result["success"])
+			self.assertIn("required", result["error"].lower())
+
+			# Missing content
+			result = tool.invoke({"subject": "Subject", "content": ""})
+			self.assertFalse(result["success"])
+			self.assertIn("required", result["error"].lower())
+		except (ImportError, frappe.ValidationError):
+			self.skipTest("langchain_core not installed")
+
+	@patch("frappe.sendmail")
+	@patch("frappe.get_all")
+	def test_send_newsletter_default_subscriber_list(self, mock_get_all, mock_sendmail):
+		"""Test newsletter uses 'Default' subscriber list by default."""
+		from xstate_workflow.langgraph.tools import ToolRegistry
+
+		mock_get_all.return_value = ["user@example.com"]
+
+		registry = ToolRegistry(
+			frappe_access="none",
+			allowed_methods=[],
+			doc={},
+			doctype=self.doctype,
+			docname=self.docname,
+		)
+
+		try:
+			tool = registry._create_send_newsletter_tool()
+			result = tool.invoke({
+				"subject": "Test",
+				"content": "Content"
+			})
+
+			self.assertTrue(result["success"])
+
+			# Verify get_all was called with Default subscriber list
+			call_kwargs = mock_get_all.call_args
+			self.assertEqual(call_kwargs.kwargs["filters"]["email_group"], "Default")
+		except (ImportError, frappe.ValidationError):
+			self.skipTest("langchain_core not installed")
+
+
 class TestSocialMediaToolsInRegistry(FrappeTestCase):
 	"""Tests for social media tools integration in ToolRegistry."""
 
@@ -776,6 +909,7 @@ class TestSocialMediaToolsInRegistry(FrappeTestCase):
 			{"name": "linkedin_post", "enabled": True},
 			{"name": "facebook_post", "enabled": True},
 			{"name": "reddit_post", "enabled": True},
+			{"name": "send_newsletter", "enabled": True},
 		]
 
 		try:
@@ -786,6 +920,7 @@ class TestSocialMediaToolsInRegistry(FrappeTestCase):
 			self.assertIn("linkedin_post", tool_names)
 			self.assertIn("facebook_post", tool_names)
 			self.assertIn("reddit_post", tool_names)
+			self.assertIn("send_newsletter", tool_names)
 		except (ImportError, frappe.ValidationError):
 			self.skipTest("langchain_core not installed")
 
@@ -798,10 +933,15 @@ class TestSocialMediaToolsInRegistry(FrappeTestCase):
 		self.assertIn("linkedin_post", ToolRegistry.DEFAULT_RATE_LIMITS)
 		self.assertIn("facebook_post", ToolRegistry.DEFAULT_RATE_LIMITS)
 		self.assertIn("reddit_post", ToolRegistry.DEFAULT_RATE_LIMITS)
+		self.assertIn("send_newsletter", ToolRegistry.DEFAULT_RATE_LIMITS)
 
-		# Reddit should have stricter limits
+		# Reddit and newsletter should have stricter limits
 		self.assertLessEqual(
 			ToolRegistry.DEFAULT_RATE_LIMITS["reddit_post"],
+			ToolRegistry.DEFAULT_RATE_LIMITS["twitter_post"]
+		)
+		self.assertLessEqual(
+			ToolRegistry.DEFAULT_RATE_LIMITS["send_newsletter"],
 			ToolRegistry.DEFAULT_RATE_LIMITS["twitter_post"]
 		)
 

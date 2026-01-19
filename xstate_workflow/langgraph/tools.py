@@ -126,6 +126,7 @@ class ToolRegistry:
 		"linkedin_post": 10,
 		"facebook_post": 10,
 		"reddit_post": 5,
+		"send_newsletter": 5,
 	}
 
 	def __init__(
@@ -288,6 +289,9 @@ class ToolRegistry:
 
 			elif tool_name == "reddit_post":
 				tools.append(self._create_reddit_post_tool())
+
+			elif tool_name == "send_newsletter":
+				tools.append(self._create_send_newsletter_tool())
 
 		# MCP tools from enabled MCP servers
 		mcp_tools = self._get_mcp_tools()
@@ -1303,6 +1307,91 @@ class ToolRegistry:
 				return {"success": False, "error": str(e)}
 
 		return reddit_post
+
+	def _create_send_newsletter_tool(self):
+		"""Create newsletter sending tool."""
+		try:
+			from langchain_core.tools import tool
+		except ImportError:
+			frappe.throw(_("langchain_core is not installed. Run: pip install langchain-core"))
+
+		import time
+
+		registry = self
+		doctype = self.doctype
+		docname = self.docname
+
+		@tool
+		def send_newsletter(subject: str, content: str, subscriber_list: str = "Default") -> dict:
+			"""Send a newsletter email to subscribers.
+
+			Args:
+				subject: Email subject line
+				content: Email body content (HTML supported)
+				subscriber_list: Name of the Email Group to send to (default: "Default")
+
+			Returns:
+				dict with success status and number of recipients
+			"""
+			start_time = time.time()
+
+			# Rate limit check
+			allowed, error_msg = registry._check_rate_limit("send_newsletter")
+			if not allowed:
+				return {"success": False, "error": error_msg}
+
+			# Validate input
+			if not subject or not content:
+				return {"success": False, "error": "Subject and content are required"}
+
+			try:
+				# Get subscribers from Email Group
+				subscribers = frappe.get_all(
+					"Email Group Member",
+					filters={"email_group": subscriber_list, "unsubscribed": 0},
+					pluck="email"
+				)
+
+				if not subscribers:
+					return {
+						"success": False,
+						"error": f"No subscribers found in Email Group '{subscriber_list}'"
+					}
+
+				# Send the newsletter
+				frappe.sendmail(
+					recipients=subscribers,
+					subject=subject,
+					message=content,
+					delayed=False,
+					reference_doctype=doctype,
+					reference_name=docname,
+				)
+
+				duration_ms = (time.time() - start_time) * 1000
+
+				result = {
+					"success": True,
+					"sent_to": len(subscribers),
+					"subscriber_list": subscriber_list,
+				}
+
+				log_tool_call(
+					"send_newsletter", doctype, docname,
+					{"subject": subject[:50], "subscriber_list": subscriber_list},
+					str(result), duration_ms, True
+				)
+
+				return result
+
+			except Exception as e:
+				log_tool_call(
+					"send_newsletter", doctype, docname,
+					{"subject": subject[:50]}, None, 0, False, str(e)
+				)
+				return {"success": False, "error": str(e)}
+
+		return send_newsletter
 
 
 def get_frappe_tools(
