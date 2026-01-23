@@ -44,6 +44,7 @@ class ApprovalTask(Document):
 
     def after_insert(self):
         """Send notifications after task creation."""
+        self._invalidate_affected_caches()
         self.notify_assignee()
 
     def on_update(self):
@@ -53,11 +54,12 @@ class ApprovalTask(Document):
                 self.completed_at = now_datetime()
                 self.completed_by = frappe.session.user
 
-            # Invalidate approval counts cache for affected users
-            self._invalidate_affected_caches()
-
             # Publish realtime update
             self.publish_realtime_update()
+
+        # Invalidate cache on status or assignment changes
+        if self.has_value_changed("status") or self.has_value_changed("assigned_to"):
+            self._invalidate_affected_caches()
 
     def _invalidate_affected_caches(self):
         """Invalidate approval count caches for users affected by this task change."""

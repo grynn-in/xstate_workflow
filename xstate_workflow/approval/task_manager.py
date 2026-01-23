@@ -499,33 +499,20 @@ def _enrich_tasks(tasks: list[dict]) -> None:
         for u in extra_records:
             user_names[u.name] = u.full_name
 
-    # Batch-fetch last approvers: one query with GROUP BY workflow_instance
-    last_approvers = {}  # {workflow_instance: {completed_by, action_taken, completed_at}}
+    # Batch-fetch completed tasks for last-approver lookup (one query, then filter per-task)
+    completed_by_workflow = {}  # {workflow_instance: [{name, completed_by, action_taken, completed_at}, ...]}
     if workflow_instances:
         try:
-            task_names = [t.get("name") for t in tasks if t.get("name")]
-            # Get the most recent completed task per workflow instance
             approver_rows = frappe.db.sql("""
-                SELECT t1.workflow_instance, t1.completed_by, t1.action_taken, t1.completed_at
-                FROM `tabApproval Task` t1
-                INNER JOIN (
-                    SELECT workflow_instance, MAX(completed_at) as max_completed
-                    FROM `tabApproval Task`
-                    WHERE workflow_instance IN %(instances)s
-                    AND status = 'Completed'
-                    AND name NOT IN %(exclude_names)s
-                    GROUP BY workflow_instance
-                ) t2 ON t1.workflow_instance = t2.workflow_instance
-                    AND t1.completed_at = t2.max_completed
-                WHERE t1.status = 'Completed'
-                AND t1.name NOT IN %(exclude_names)s
-            """, {
-                "instances": list(workflow_instances),
-                "exclude_names": task_names or ["__none__"]
-            }, as_dict=True)
+                SELECT name, workflow_instance, completed_by, action_taken, completed_at
+                FROM `tabApproval Task`
+                WHERE workflow_instance IN %(instances)s
+                AND status = 'Completed'
+                ORDER BY completed_at DESC
+            """, {"instances": list(workflow_instances)}, as_dict=True)
 
             for row in approver_rows:
-                last_approvers[row.workflow_instance] = row
+                completed_by_workflow.setdefault(row.workflow_instance, []).append(row)
                 if row.completed_by:
                     all_users.add(row.completed_by)
         except Exception:
@@ -579,16 +566,17 @@ def _enrich_tasks(tasks: list[dict]) -> None:
         if task.get("workflow_instance"):
             task["workflow_submitted"] = instance_dates.get(task["workflow_instance"])
 
-        # Last approver
-        if task.get("workflow_instance") and task["workflow_instance"] in last_approvers:
-            approver = last_approvers[task["workflow_instance"]]
-            approver_data = {
-                "completed_by": approver.completed_by,
-                "action_taken": approver.action_taken,
-                "completed_at": approver.completed_at,
-                "completed_by_name": user_names.get(approver.completed_by) or approver.completed_by
-            }
-            task["last_approver"] = approver_data
+        # Last approver: find most recent completed task in this workflow that isn't the current task
+        wf_completed = completed_by_workflow.get(task.get("workflow_instance"), [])
+        for approver in wf_completed:
+            if approver.name != task.get("name"):
+                task["last_approver"] = {
+                    "completed_by": approver.completed_by,
+                    "action_taken": approver.action_taken,
+                    "completed_at": approver.completed_at,
+                    "completed_by_name": user_names.get(approver.completed_by) or approver.completed_by
+                }
+                break
 
 
 def _get_in_progress_others(
