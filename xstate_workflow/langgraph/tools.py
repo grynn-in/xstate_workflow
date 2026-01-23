@@ -1281,6 +1281,17 @@ class ToolRegistry:
 
 				if response.ok:
 					data = response.json()
+					# Reddit returns errors in JSON body even with HTTP 200
+					api_errors = data.get("json", {}).get("errors", [])
+					if api_errors:
+						error_msgs = "; ".join(e[1] if len(e) > 1 else e[0] for e in api_errors)
+						error = f"Reddit API error: {error_msgs}"
+						log_tool_call(
+							"reddit_post", doctype, docname,
+							{"subreddit": subreddit, "title": title[:50]}, None, duration_ms, False, error
+						)
+						return {"success": False, "error": error}
+
 					post_url = data.get("json", {}).get("data", {}).get("url", "")
 					post_id = data.get("json", {}).get("data", {}).get("id", "")
 					result = {

@@ -119,6 +119,7 @@ const AVAILABLE_TOOLS = [
   { name: 'linkedin_post', label: 'LinkedIn Post', description: 'Post to LinkedIn' },
   { name: 'facebook_post', label: 'Facebook Post', description: 'Post to Facebook Page' },
   { name: 'reddit_post', label: 'Reddit Post', description: 'Post to Reddit subreddits' },
+  { name: 'send_newsletter', label: 'Newsletter', description: 'Send newsletter to subscribers' },
 ];
 
 // Common whitelisted Frappe methods
