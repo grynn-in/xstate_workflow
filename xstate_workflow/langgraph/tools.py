@@ -361,7 +361,7 @@ class ToolRegistry:
 			LangChain tool or None
 		"""
 		try:
-			from langchain_core.tools import tool
+			from langchain_core.tools import StructuredTool
 		except ImportError:
 			return None
 
@@ -387,8 +387,8 @@ class ToolRegistry:
 		registry = self
 
 		tool_name = f"rest_{endpoint_name}"
+		tool_description = f"{endpoint_description} Args: params - optional parameters for URL/body substitution."
 
-		@tool(tool_name, description=f"{endpoint_description} Args: params - optional parameters for URL/body substitution.")
 		def rest_endpoint_call(**params) -> dict:
 			"""Call a configured REST endpoint."""
 			start_time = time.time()
@@ -468,7 +468,11 @@ class ToolRegistry:
 			except Exception as e:
 				return {"error": str(e)}
 
-		return rest_endpoint_call
+		return StructuredTool.from_function(
+			func=rest_endpoint_call,
+			name=tool_name,
+			description=tool_description,
+		)
 
 	def _create_frappe_read_tool(self):
 		"""Create tool for reading Frappe documents."""
