@@ -58,7 +58,8 @@ class ApprovalTask(Document):
             self.publish_realtime_update()
 
         # Invalidate cache on status or assignment changes
-        if self.has_value_changed("status") or self.has_value_changed("assigned_to"):
+        if (self.has_value_changed("status") or self.has_value_changed("assigned_to")
+                or self.has_value_changed("assigned_role")):
             self._invalidate_affected_caches()
 
     def _invalidate_affected_caches(self):
@@ -77,10 +78,15 @@ class ApprovalTask(Document):
             users_to_invalidate.add(prev.assigned_to)
 
         # Invalidate caches for users with the assigned role
+        roles_to_invalidate = set()
         if self.assigned_role:
+            roles_to_invalidate.add(self.assigned_role)
+        if prev and prev.assigned_role and prev.assigned_role != self.assigned_role:
+            roles_to_invalidate.add(prev.assigned_role)
+        for role in roles_to_invalidate:
             role_users = frappe.get_all(
                 "Has Role",
-                filters={"role": self.assigned_role, "parenttype": "User"},
+                filters={"role": role, "parenttype": "User"},
                 pluck="parent"
             )
             users_to_invalidate.update(role_users)
