@@ -10,5 +10,5 @@ export * from './hooks';
 // Types
 export * from './types';
 
-// Utils
-export { calculateAutoLayout } from './utils/autoLayout';
+// Layout
+export * from './layout';

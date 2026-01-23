@@ -115,6 +115,11 @@ const AVAILABLE_TOOLS = [
   { name: 'web_search', label: 'Web Search', description: 'Search the web' },
   { name: 'calculator', label: 'Calculator', description: 'Perform calculations' },
   { name: 'code_executor', label: 'Code Executor', description: 'Execute Python code (sandboxed)' },
+  { name: 'twitter_post', label: 'Twitter/X Post', description: 'Post tweets to Twitter/X' },
+  { name: 'linkedin_post', label: 'LinkedIn Post', description: 'Post to LinkedIn' },
+  { name: 'facebook_post', label: 'Facebook Post', description: 'Post to Facebook Page' },
+  { name: 'reddit_post', label: 'Reddit Post', description: 'Post to Reddit subreddits' },
+  { name: 'send_newsletter', label: 'Newsletter', description: 'Send newsletter to subscribers' },
 ];
 
 // Common whitelisted Frappe methods
@@ -415,6 +420,8 @@ function AgenticNodePanelComponent({
           <option value="claude-3-opus">Claude 3 Opus</option>
           <option value="claude-3-sonnet">Claude 3 Sonnet</option>
           <option value="claude-3-haiku">Claude 3 Haiku</option>
+          <option value="grok-2">Grok 2 (xAI)</option>
+          <option value="grok-2-mini">Grok 2 Mini (xAI)</option>
         </select>
       </div>
 

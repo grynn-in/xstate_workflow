@@ -1,0 +1,120 @@
+{
+	"actions": [],
+	"creation": "2024-01-01 00:00:00.000000",
+	"doctype": "DocType",
+	"engine": "InnoDB",
+	"field_order": [
+		"llm_section",
+		"default_llm_model",
+		"column_break_llm",
+		"max_tokens",
+		"api_keys_section",
+		"openai_api_key",
+		"anthropic_api_key",
+		"column_break_api",
+		"xai_api_key",
+		"social_media_section",
+		"social_media_info"
+	],
+	"fields": [
+		{
+			"fieldname": "llm_section",
+			"fieldtype": "Section Break",
+			"label": "LLM Configuration"
+		},
+		{
+			"default": "gpt-4",
+			"fieldname": "default_llm_model",
+			"fieldtype": "Select",
+			"label": "Default LLM Model",
+			"options": "gpt-4\ngpt-4-turbo\ngpt-3.5-turbo\nclaude-3-opus\nclaude-3-sonnet\nclaude-3-haiku\ngrok-2\ngrok-2-mini"
+		},
+		{
+			"fieldname": "column_break_llm",
+			"fieldtype": "Column Break"
+		},
+		{
+			"default": "4096",
+			"description": "Maximum tokens for LLM responses",
+			"fieldname": "max_tokens",
+			"fieldtype": "Int",
+			"label": "Max Tokens"
+		},
+		{
+			"fieldname": "api_keys_section",
+			"fieldtype": "Section Break",
+			"label": "API Keys"
+		},
+		{
+			"description": "API key for OpenAI GPT models",
+			"fieldname": "openai_api_key",
+			"fieldtype": "Password",
+			"label": "OpenAI API Key"
+		},
+		{
+			"description": "API key for Anthropic Claude models",
+			"fieldname": "anthropic_api_key",
+			"fieldtype": "Password",
+			"label": "Anthropic API Key"
+		},
+		{
+			"fieldname": "column_break_api",
+			"fieldtype": "Column Break"
+		},
+		{
+			"description": "API key for xAI Grok models",
+			"fieldname": "xai_api_key",
+			"fieldtype": "Password",
+			"label": "xAI API Key (Grok)"
+		},
+		{
+			"fieldname": "social_media_section",
+			"fieldtype": "Section Break",
+			"label": "Social Media Configuration"
+		},
+		{
+			"fieldname": "social_media_info",
+			"fieldtype": "HTML",
+			"label": "Social Media Info",
+			"options": "<div class=\"alert alert-info\">\n<strong>Social Media Credentials</strong><br>\nSocial media API credentials should be configured in your site's <code>site_config.json</code> file for security.<br><br>\n<strong>Twitter/X:</strong> <code>twitter_bearer_token</code><br>\n<strong>LinkedIn:</strong> <code>linkedin_access_token</code>, <code>linkedin_person_urn</code><br>\n<strong>Facebook:</strong> <code>facebook_page_access_token</code>, <code>facebook_page_id</code><br>\n<strong>Reddit:</strong> <code>reddit_client_id</code>, <code>reddit_client_secret</code>, <code>reddit_username</code>, <code>reddit_password</code>\n</div>"
+		}
+	],
+	"index_web_pages_for_search": 1,
+	"issingle": 1,
+	"links": [],
+	"modified": "2024-01-01 00:00:00.000000",
+	"modified_by": "Administrator",
+	"module": "Xstate Workflow",
+	"name": "XState Workflow Settings",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"create": 1,
+			"delete": 0,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 0,
+			"delete": 0,
+			"email": 0,
+			"export": 0,
+			"print": 0,
+			"read": 1,
+			"report": 0,
+			"role": "Workflow Manager",
+			"share": 0,
+			"write": 1
+		}
+	],
+	"sort_field": "modified",
+	"sort_order": "DESC",
+	"states": [],
+	"track_changes": 1
+}

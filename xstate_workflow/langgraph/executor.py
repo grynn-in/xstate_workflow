@@ -199,10 +199,12 @@ def get_llm(model: str | None):
 		anthropic_key = (
 			settings.get_password("anthropic_api_key") if hasattr(settings, "anthropic_api_key") else None
 		)
+		xai_key = settings.get_password("xai_api_key") if hasattr(settings, "xai_api_key") else None
 	except Exception:
 		default_model = "gpt-4"
 		openai_key = None
 		anthropic_key = None
+		xai_key = None
 
 	if not model:
 		model = default_model
@@ -228,6 +230,19 @@ def get_llm(model: str | None):
 			)
 		except ImportError:
 			frappe.throw(_("langchain_anthropic is not installed. Run: pip install langchain-anthropic"))
+
+	elif model.startswith("grok"):
+		# xAI's Grok API is OpenAI-compatible
+		try:
+			from langchain_openai import ChatOpenAI
+
+			return ChatOpenAI(
+				model=model,
+				api_key=xai_key,
+				base_url="https://api.x.ai/v1",
+			)
+		except ImportError:
+			frappe.throw(_("langchain_openai is not installed. Run: pip install langchain-openai"))
 
 	else:
 		# Default to OpenAI for unknown models

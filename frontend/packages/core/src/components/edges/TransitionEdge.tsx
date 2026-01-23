@@ -4,11 +4,14 @@ import {
   EdgeLabelRenderer,
   useReactFlow,
   useViewport,
+  getSmoothStepPath,
   type Position,
 } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { WorkflowEdgeData } from '../../types';
 import { getEventColor } from '../../types';
+
+export type EdgePathType = 'bezier' | 'smoothstep';
 
 /**
  * Extended edge data with runtime state properties for instance viewer
@@ -24,6 +27,8 @@ export interface RuntimeEdgeData extends WorkflowEdgeData {
   isDisabledTransition?: boolean;
   /** Custom control point for edge path (user-draggable) */
   controlPoint?: { x: number; y: number };
+  /** Edge path type: bezier (default, draggable) or smoothstep (orthogonal) */
+  edgePathType?: EdgePathType;
 }
 
 export interface TransitionEdgeProps {
@@ -102,26 +107,49 @@ function TransitionEdgeComponent({
   const { zoom } = useViewport();
   const [isDragging, setIsDragging] = useState(false);
 
+  // Edge path type: bezier (default) or smoothstep
+  const edgePathType = data?.edgePathType ?? 'bezier';
+
   // Use custom pathOffset if provided
   const offset = data?.pathOffset ?? 0;
 
-  // Get control point - use saved one or calculate default
+  // Get control point - use saved one or calculate default (for bezier)
   const defaultControl = getDefaultControlPoint(sourceX, sourceY, targetX, targetY, offset);
   const controlPoint = data?.controlPoint || defaultControl;
 
-  // Create the path
-  const edgePath = getQuadraticPath(
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    controlPoint.x,
-    controlPoint.y
-  );
+  // Create the path based on edge type
+  let edgePath: string;
+  let labelX: number;
+  let labelY: number;
 
-  // Label position (at the control point)
-  const labelX = controlPoint.x;
-  const labelY = controlPoint.y;
+  if (edgePathType === 'smoothstep') {
+    // Use React Flow's built-in smoothstep path
+    const [path, labelXPos, labelYPos] = getSmoothStepPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+      borderRadius: 8,
+    });
+    edgePath = path;
+    labelX = labelXPos;
+    labelY = labelYPos;
+  } else {
+    // Use custom quadratic bezier path (default)
+    edgePath = getQuadraticPath(
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      controlPoint.x,
+      controlPoint.y
+    );
+    // Label position (at the control point)
+    labelX = controlPoint.x;
+    labelY = controlPoint.y;
+  }
 
   const transitionType = data?.transitionType || 'event';
   const hasGuard = !!data?.guard;
@@ -282,8 +310,8 @@ function TransitionEdgeComponent({
         }}
       />
 
-      {/* Draggable control point - only show when edge is selected */}
-      {selected && (
+      {/* Draggable control point - only show when edge is selected and using bezier path */}
+      {selected && edgePathType === 'bezier' && (
         <EdgeLabelRenderer>
           <div
             className="xsw-edge-control-point"

@@ -1,0 +1,170 @@
+{
+	"actions": [],
+	"allow_rename": 0,
+	"autoname": "format:CP-{####}",
+	"creation": "2024-01-01 00:00:00.000000",
+	"doctype": "DocType",
+	"engine": "InnoDB",
+	"field_order": [
+		"section_input",
+		"industry_focus",
+		"content_themes",
+		"column_break_input",
+		"target_platforms",
+		"target_audience",
+		"section_ai_generated",
+		"title",
+		"topic",
+		"column_break_content",
+		"twitter_version",
+		"linkedin_version",
+		"newsletter_version",
+		"hashtags",
+		"section_status",
+		"status",
+		"column_break_status",
+		"reviewer_notes",
+		"published_urls"
+	],
+	"fields": [
+		{
+			"fieldname": "section_input",
+			"fieldtype": "Section Break",
+			"label": "Configuration (Your Input)"
+		},
+		{
+			"fieldname": "industry_focus",
+			"fieldtype": "Select",
+			"label": "Industry Focus",
+			"options": "Accounting & Finance\nTechnology\nHealthcare\nLegal\nMarketing\nReal Estate\nE-commerce\nManufacturing\nCustom",
+			"default": "Accounting & Finance"
+		},
+		{
+			"fieldname": "content_themes",
+			"fieldtype": "Small Text",
+			"label": "Content Themes",
+			"description": "Optional hints: AI trends, Tax updates, Productivity (comma-separated)"
+		},
+		{
+			"fieldname": "column_break_input",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "target_platforms",
+			"fieldtype": "Select",
+			"label": "Target Platforms",
+			"options": "LinkedIn\nTwitter\nNewsletter\nLinkedIn, Twitter\nLinkedIn, Newsletter\nTwitter, Newsletter\nLinkedIn, Twitter, Newsletter",
+			"default": "LinkedIn, Twitter, Newsletter"
+		},
+		{
+			"fieldname": "target_audience",
+			"fieldtype": "Small Text",
+			"label": "Target Audience",
+			"description": "e.g., CFOs, Small business owners"
+		},
+		{
+			"fieldname": "section_ai_generated",
+			"fieldtype": "Section Break",
+			"label": "AI Generated Content"
+		},
+		{
+			"fieldname": "title",
+			"fieldtype": "Data",
+			"label": "Title",
+			"in_list_view": 1,
+			"read_only_depends_on": "eval:doc.status !== 'Review'",
+			"description": "AI generates this"
+		},
+		{
+			"fieldname": "topic",
+			"fieldtype": "Small Text",
+			"label": "Topic Brief",
+			"description": "AI generates this"
+		},
+		{
+			"fieldname": "column_break_content",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "twitter_version",
+			"fieldtype": "Small Text",
+			"label": "Twitter Version",
+			"description": "Max 280 characters"
+		},
+		{
+			"fieldname": "linkedin_version",
+			"fieldtype": "Text",
+			"label": "LinkedIn Version"
+		},
+		{
+			"fieldname": "newsletter_version",
+			"fieldtype": "Text Editor",
+			"label": "Newsletter Version"
+		},
+		{
+			"fieldname": "hashtags",
+			"fieldtype": "Data",
+			"label": "Hashtags"
+		},
+		{
+			"fieldname": "section_status",
+			"fieldtype": "Section Break",
+			"label": "Status"
+		},
+		{
+			"fieldname": "status",
+			"fieldtype": "Select",
+			"label": "Status",
+			"options": "Researching\nGenerating\nReview\nApproved\nPublishing\nPublished\nFailed",
+			"default": "Researching",
+			"in_list_view": 1
+		},
+		{
+			"fieldname": "column_break_status",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "reviewer_notes",
+			"fieldtype": "Small Text",
+			"label": "Reviewer Notes"
+		},
+		{
+			"fieldname": "published_urls",
+			"fieldtype": "Code",
+			"label": "Published URLs",
+			"options": "JSON"
+		}
+	],
+	"index_web_pages_for_search": 1,
+	"links": [],
+	"modified": "2024-01-01 00:00:00.000000",
+	"modified_by": "Administrator",
+	"module": "Xstate Workflow",
+	"name": "Content Post",
+	"naming_rule": "Expression",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 1,
+			"read": 1,
+			"write": 1,
+			"role": "All"
+		}
+	],
+	"sort_field": "modified",
+	"sort_order": "DESC",
+	"states": [],
+	"track_changes": 1
+}

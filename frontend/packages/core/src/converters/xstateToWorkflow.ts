@@ -17,7 +17,35 @@ import type {
   EndNodeData,
   StartNodeData,
 } from '../types';
-import { calculateAutoLayout } from '../utils/autoLayout';
+
+/**
+ * Simple grid-based layout for initial node positioning
+ * Used when no saved positions exist - ELK auto-layout can be applied later
+ */
+function calculateSimpleGridLayout(
+  states: Record<string, unknown>,
+  nodeWidth = 250,
+  nodeHeight = 120,
+  gapX = 200,
+  gapY = 150,
+  startX = 50,
+  startY = 50,
+  columns = 3
+): Map<string, { x: number; y: number }> {
+  const positions = new Map<string, { x: number; y: number }>();
+  const stateNames = Object.keys(states);
+
+  stateNames.forEach((name, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    positions.set(name, {
+      x: startX + col * (nodeWidth + gapX),
+      y: startY + row * (nodeHeight + gapY),
+    });
+  });
+
+  return positions;
+}
 
 // Helper to check if a state has domain node metadata
 interface DomainNodeMeta {
@@ -94,9 +122,10 @@ export function xstateToWorkflow(
     }
   }
 
-  // If no existing positions, calculate auto-layout
+  // If no existing positions, use simple grid layout
+  // (ELK auto-layout can be applied later via the UI for better positioning)
   if (existingPositions.size === 0 && xstate.states) {
-    existingPositions = calculateAutoLayout(xstate);
+    existingPositions = calculateSimpleGridLayout(xstate.states);
   }
 
   // Process all states
