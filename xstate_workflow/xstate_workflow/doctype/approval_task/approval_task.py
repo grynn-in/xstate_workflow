@@ -71,6 +71,11 @@ class ApprovalTask(Document):
         if self.completed_by:
             users_to_invalidate.add(self.completed_by)
 
+        # Also invalidate previous assignee's cache on reassignment
+        prev = self.get_doc_before_save()
+        if prev and prev.assigned_to and prev.assigned_to != self.assigned_to:
+            users_to_invalidate.add(prev.assigned_to)
+
         for user in users_to_invalidate:
             invalidate_approval_counts(user)
 

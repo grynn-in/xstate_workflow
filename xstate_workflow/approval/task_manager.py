@@ -162,6 +162,8 @@ class ApprovalTaskManager:
         Returns:
             Number of tasks cancelled
         """
+        from xstate_workflow.utils.cache import invalidate_approval_counts
+
         if not self.workflow_instance:
             return 0
 
@@ -171,18 +173,25 @@ class ApprovalTaskManager:
                 "workflow_instance": self.workflow_instance,
                 "status": "Pending"
             },
-            pluck="name"
+            fields=["name", "assigned_to"]
         )
 
-        for task_name in tasks:
+        users_to_invalidate = set()
+        for task in tasks:
             frappe.db.set_value(
                 "Approval Task",
-                task_name,
+                task.name,
                 {
                     "status": "Cancelled",
                     "comments": "Workflow cancelled or transitioned"
                 }
             )
+            if task.assigned_to:
+                users_to_invalidate.add(task.assigned_to)
+
+        # Explicitly invalidate caches since set_value bypasses hooks
+        for user in users_to_invalidate:
+            invalidate_approval_counts(user)
 
         return len(tasks)
 
