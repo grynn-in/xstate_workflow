@@ -386,18 +386,11 @@ class ToolRegistry:
 		docname = self.docname
 		registry = self
 
-		@tool
+		tool_name = f"rest_{endpoint_name}"
+
+		@tool(tool_name, description=f"{endpoint_description} Args: params - optional parameters for URL/body substitution.")
 		def rest_endpoint_call(**params) -> dict:
-			f"""Call REST endpoint: {endpoint_name}
-
-			{endpoint_description}
-
-			Args:
-				params: Optional parameters for URL/body substitution
-
-			Returns:
-				REST API response or error
-			"""
+			"""Call a configured REST endpoint."""
 			start_time = time.time()
 
 			# Check rate limit
@@ -469,15 +462,11 @@ class ToolRegistry:
 					}
 
 			except requests.exceptions.Timeout:
-				return {"error": f"Request timed out after {endpoint_timeout}s"}
+				return {"error": f"Request timeout after {endpoint_timeout}s"}
 			except requests.exceptions.ConnectionError as e:
 				return {"error": f"Connection error: {e}"}
 			except Exception as e:
 				return {"error": str(e)}
-
-		# Set the tool name dynamically
-		rest_endpoint_call.__name__ = f"rest_{endpoint_name}"
-		rest_endpoint_call.__doc__ = endpoint_description
 
 		return rest_endpoint_call
 
