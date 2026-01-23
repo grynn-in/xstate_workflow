@@ -44,7 +44,7 @@ def trigger_event(doctype: str, docname: str, event: str, data: str | None = Non
 
     job = enqueue(
         execute_transition,
-        queue="default",
+        queue="workflow",
         timeout=300,
         instance_name=instance_name,
         event=event,
@@ -109,7 +109,7 @@ def _trigger_event_internal(doctype: str, docname: str, event: str, data: str | 
 
     job = enqueue(
         execute_transition,
-        queue="default",
+        queue="workflow",
         timeout=300,
         instance_name=instance_name,
         event=event,
@@ -888,7 +888,7 @@ def invoke_service(instance, invoke_config: dict | list, context: dict,
                 # HTTP service - execute in background
                 enqueue(
                     _execute_http_service,
-                    queue="default",
+                    queue="workflow",
                     timeout=300,
                     instance_name=instance.name,
                     service_id=service_id,
@@ -910,7 +910,7 @@ def invoke_service(instance, invoke_config: dict | list, context: dict,
                     if service_doc.is_async:
                         enqueue(
                             _execute_python_service,
-                            queue="default",
+                            queue="workflow",
                             timeout=300,
                             instance_name=instance.name,
                             service_id=service_id,
@@ -2343,7 +2343,7 @@ def create_action_function(code: str, ref_doc, instance, is_async: bool = False)
 
     if is_async:
         def async_action(context: dict, event: dict) -> dict:
-            enqueue(action_fn, context=context, event=event)
+            enqueue(action_fn, queue="workflow", context=context, event=event)
             return context
         return async_action
 
