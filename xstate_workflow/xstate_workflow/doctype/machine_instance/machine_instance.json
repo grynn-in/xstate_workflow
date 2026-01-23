@@ -46,7 +46,8 @@
    "in_list_view": 1,
    "label": "State Machine",
    "options": "State Machine",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "reference_doctype",
@@ -54,7 +55,8 @@
    "in_list_view": 1,
    "label": "Reference DocType",
    "options": "DocType",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "reference_name",
@@ -62,7 +64,8 @@
    "in_list_view": 1,
    "label": "Reference Name",
    "options": "reference_doctype",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "description": "Tenant for multi-tenant isolation",
@@ -81,7 +84,8 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "idle\nactive\nfinal\nerror\narchived\ncancelled"
+   "options": "idle\nactive\nfinal\nerror\narchived\ncancelled",
+   "search_index": 1
   },
   {
    "fieldname": "current_state",

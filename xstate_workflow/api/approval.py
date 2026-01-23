@@ -260,15 +260,25 @@ def get_approval_counts() -> dict:
         - escalated: Escalated tasks assigned to user
         - in_progress_others: Workflows user participated in, currently with someone else
     """
+    from xstate_workflow.utils.cache import get_cached_approval_counts, set_cached_approval_counts
+
     user = frappe.session.user
 
-    return {
+    # Try cache first
+    cached = get_cached_approval_counts(user)
+    if cached:
+        return cached
+
+    counts = {
         "pending_with_me": _get_status_count(user, "pending_with_me"),
         "overdue_with_me": _get_status_count(user, "overdue_with_me"),
         "completed_by_me": _get_status_count(user, "completed_by_me"),
         "escalated": _get_status_count(user, "escalated"),
         "in_progress_others": _get_status_count(user, "in_progress_others")
     }
+
+    set_cached_approval_counts(user, counts)
+    return counts
 
 
 def _get_status_count(user: str, status: str, additional_filters: dict = None) -> int:

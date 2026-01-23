@@ -53,8 +53,24 @@ class ApprovalTask(Document):
                 self.completed_at = now_datetime()
                 self.completed_by = frappe.session.user
 
+            # Invalidate approval counts cache for affected users
+            self._invalidate_affected_caches()
+
             # Publish realtime update
             self.publish_realtime_update()
+
+    def _invalidate_affected_caches(self):
+        """Invalidate approval count caches for users affected by this task change."""
+        from xstate_workflow.utils.cache import invalidate_approval_counts
+
+        users_to_invalidate = set()
+        if self.assigned_to:
+            users_to_invalidate.add(self.assigned_to)
+        if self.completed_by:
+            users_to_invalidate.add(self.completed_by)
+
+        for user in users_to_invalidate:
+            invalidate_approval_counts(user)
 
     def notify_assignee(self):
         """Send notification to assigned user."""

@@ -368,3 +368,60 @@ def clear_all_workflow_caches():
     Useful for debugging or after bulk updates.
     """
     frappe.cache().delete_keys("xsw:*")
+
+
+# ============================================================================
+# APPROVAL COUNTS CACHING
+# ============================================================================
+
+APPROVAL_COUNTS_TTL = 30  # seconds
+
+
+def get_cached_approval_counts(user: str) -> dict | None:
+    """
+    Get cached approval task counts for a user.
+
+    Args:
+        user: User ID
+
+    Returns:
+        Dict of counts by status or None if not cached
+    """
+    cache_key = f"xsw:approval_counts:{user}"
+    cached = frappe.cache().get_value(cache_key)
+
+    if cached:
+        return json.loads(cached)
+
+    return None
+
+
+def set_cached_approval_counts(user: str, counts: dict, ttl: int = None):
+    """
+    Cache approval task counts for a user.
+
+    Args:
+        user: User ID
+        counts: Dict of counts by status
+        ttl: Time to live in seconds (default: APPROVAL_COUNTS_TTL)
+    """
+    cache_key = f"xsw:approval_counts:{user}"
+    frappe.cache().set_value(
+        cache_key,
+        json.dumps(counts),
+        expires_in_sec=ttl or APPROVAL_COUNTS_TTL
+    )
+
+
+def invalidate_approval_counts(user: str = None):
+    """
+    Invalidate cached approval counts.
+
+    Args:
+        user: Specific user to invalidate, or None to invalidate all
+    """
+    if user:
+        cache_key = f"xsw:approval_counts:{user}"
+        frappe.cache().delete_value(cache_key)
+    else:
+        frappe.cache().delete_keys("xsw:approval_counts:*")
