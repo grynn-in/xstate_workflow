@@ -1823,7 +1823,11 @@ def build_guards(machine_doc, ref_doc) -> dict:
     # Load from guards_table (inline Python code)
     for guard in machine_doc.guards_table:
         if guard.python_code:
-            guards[guard.guard_name] = create_guard_function(guard.python_code, ref_doc)
+            guards[guard.guard_name] = create_guard_function(
+                guard.python_code, ref_doc,
+                machine_name=machine_doc.name,
+                guard_name=guard.guard_name
+            )
 
     # Load visual guards from workflow_builder_config (NO CODE REQUIRED!)
     if machine_doc.workflow_builder_config:
@@ -2169,29 +2173,47 @@ def evaluate_operator(field_value, operator: str, compare_value) -> bool:
     return False
 
 
-def create_guard_function(code: str, ref_doc):
+def create_guard_function(code: str, ref_doc, machine_name: str = "", guard_name: str = ""):
     """
     Create a guard function from Python code string.
 
     Args:
         code: Python code that returns True/False
         ref_doc: Reference document
+        machine_name: Name of the State Machine (for logging)
+        guard_name: Name of the guard (for logging)
 
     Returns:
         Callable guard function
     """
+    from xstate_workflow.utils.sandbox import (
+        validate_guard_action_code,
+        execution_timeout,
+        ExecutionTimeoutError,
+        RestrictedFrappe,
+        log_guard_execution,
+    )
+
+    # Validate code at creation time
+    is_safe, error_msg = validate_guard_action_code(code)
+    if not is_safe:
+        log_guard_execution(machine_name, guard_name, False, error=error_msg)
+        return lambda ctx, evt: False
+
+    restricted_frappe = RestrictedFrappe(allow_actions=False)
+
     def guard_fn(context: dict, event: dict) -> bool:
         local_vars = {
             "context": context,
             "event": event,
             "doc": ref_doc,
-            "frappe": frappe,
+            "frappe": restricted_frappe,
             "True": True,
             "False": False
         }
         # Provide common builtins for guard code execution
         safe_builtins = {
-            "frappe": frappe,
+            "frappe": restricted_frappe,
             # Type conversions
             "str": str,
             "int": int,
@@ -2207,20 +2229,24 @@ def create_guard_function(code: str, ref_doc):
             # Checks
             "isinstance": isinstance,
             "hasattr": hasattr,
-            "getattr": getattr,
             # Boolean
             "all": all,
             "any": any,
         }
         try:
-            # Execute as expression or statements
-            if "\n" not in code and not code.strip().startswith("return"):
-                return eval(code, {"__builtins__": safe_builtins}, local_vars)
-            else:
-                exec(code, {"__builtins__": safe_builtins}, local_vars)
-                return local_vars.get("result", False)
+            with execution_timeout(5):
+                # Execute as expression or statements
+                if "\n" not in code and not code.strip().startswith("return"):
+                    result = eval(code, {"__builtins__": safe_builtins}, local_vars)
+                else:
+                    exec(code, {"__builtins__": safe_builtins}, local_vars)
+                    result = local_vars.get("result", False)
+            return bool(result)
+        except ExecutionTimeoutError as e:
+            log_guard_execution(machine_name, guard_name, False, error=str(e))
+            return False
         except Exception as e:
-            frappe.log_error(f"Guard execution error: {e}\nCode: {code}")
+            log_guard_execution(machine_name, guard_name, False, error=f"{e}\nCode: {code}")
             return False
 
     return guard_fn
@@ -2253,7 +2279,9 @@ def build_actions(machine_doc, ref_doc, instance) -> dict:
     for action in machine_doc.actions_table:
         if action.python_code:
             actions[action.action_name] = create_action_function(
-                action.python_code, ref_doc, instance, action.is_async
+                action.python_code, ref_doc, instance, action.is_async,
+                machine_name=machine_doc.name,
+                action_name=action.action_name
             )
 
     # Add domain node actions (approval, auto-action, etc.)
@@ -2271,7 +2299,8 @@ def build_actions(machine_doc, ref_doc, instance) -> dict:
     return actions
 
 
-def create_action_function(code: str, ref_doc, instance, is_async: bool = False):
+def create_action_function(code: str, ref_doc, instance, is_async: bool = False,
+                           machine_name: str = "", action_name: str = ""):
     """
     Create an action function from Python code string.
 
@@ -2280,23 +2309,41 @@ def create_action_function(code: str, ref_doc, instance, is_async: bool = False)
         ref_doc: Reference document
         instance: Machine Instance
         is_async: Whether to run in background
+        machine_name: Name of the State Machine (for logging)
+        action_name: Name of the action (for logging)
 
     Returns:
         Callable action function
     """
+    from xstate_workflow.utils.sandbox import (
+        validate_guard_action_code,
+        execution_timeout,
+        ExecutionTimeoutError,
+        RestrictedFrappe,
+        log_action_execution,
+    )
+
+    # Validate code at creation time
+    is_safe, error_msg = validate_guard_action_code(code)
+    if not is_safe:
+        log_action_execution(machine_name, action_name, error=error_msg)
+        return lambda ctx, evt: ctx
+
+    restricted_frappe = RestrictedFrappe(allow_actions=True)
+
     def action_fn(context: dict, event: dict) -> dict:
         local_vars = {
             "context": context.copy(),
             "event": event,
             "doc": ref_doc,
             "instance": instance,
-            "frappe": frappe
+            "frappe": restricted_frappe
         }
 
         try:
             # Provide common builtins for action code execution
             safe_builtins = {
-                "frappe": frappe,
+                "frappe": restricted_frappe,
                 "json": json,
                 # Type conversions
                 "str": str,
@@ -2323,8 +2370,6 @@ def create_action_function(code: str, ref_doc, instance, is_async: bool = False)
                 # Checks
                 "isinstance": isinstance,
                 "hasattr": hasattr,
-                "getattr": getattr,
-                "setattr": setattr,
                 # String ops
                 "print": print,
                 "repr": repr,
@@ -2335,10 +2380,14 @@ def create_action_function(code: str, ref_doc, instance, is_async: bool = False)
                 "KeyError": KeyError,
                 # None/True/False are automatically available
             }
-            exec(code, {"__builtins__": safe_builtins}, local_vars)
+            with execution_timeout(30):
+                exec(code, {"__builtins__": safe_builtins}, local_vars)
             return local_vars.get("context", context)
+        except ExecutionTimeoutError as e:
+            log_action_execution(machine_name, action_name, error=str(e))
+            return context
         except Exception as e:
-            frappe.log_error(f"Action execution error: {e}\nCode: {code}")
+            log_action_execution(machine_name, action_name, error=f"{e}\nCode: {code}")
             return context
 
     if is_async:

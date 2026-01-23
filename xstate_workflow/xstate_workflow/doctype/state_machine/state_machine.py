@@ -11,8 +11,36 @@ class StateMachine(Document):
     def validate(self):
         self.validate_json_config()
         self.validate_logic_module()
+        self.validate_guard_action_code()
         self.validate_final_states_for_submittable()
         self.modified_by = frappe.session.user
+
+    def validate_guard_action_code(self):
+        """Validate that guard/action inline code does not contain dangerous patterns."""
+        from xstate_workflow.utils.sandbox import validate_guard_action_code
+
+        errors = []
+
+        if hasattr(self, "guards_table"):
+            for guard in self.guards_table:
+                if guard.python_code:
+                    is_safe, error_msg = validate_guard_action_code(guard.python_code)
+                    if not is_safe:
+                        errors.append(f"Guard '{guard.guard_name}': {error_msg}")
+
+        if hasattr(self, "actions_table"):
+            for action in self.actions_table:
+                if action.python_code:
+                    is_safe, error_msg = validate_guard_action_code(action.python_code)
+                    if not is_safe:
+                        errors.append(f"Action '{action.action_name}': {error_msg}")
+
+        if errors:
+            frappe.throw(
+                _("Unsafe code detected in guard/action definitions:<br>")
+                + "<br>".join(errors),
+                title=_("Code Validation Failed")
+            )
 
     def validate_json_config(self):
         """Validate that json_config is valid XState machine config"""
