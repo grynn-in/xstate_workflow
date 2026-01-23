@@ -155,8 +155,8 @@ class TestTwitterPostTool(FrappeTestCase):
 		"""Test successful Twitter post."""
 		from xstate_workflow.langgraph.tools import ToolRegistry
 
-		# Mock credential resolution
-		mock_credential.return_value = "test-bearer-token"
+		# Mock OAuth 1.0a credentials
+		mock_credential.return_value = "test-credential-value"
 
 		# Mock Twitter API response
 		mock_response = MagicMock()
@@ -180,20 +180,21 @@ class TestTwitterPostTool(FrappeTestCase):
 			self.assertEqual(result["tweet_id"], "1234567890")
 			self.assertIn("twitter.com", result["url"])
 
-			# Verify API was called correctly
+			# Verify API was called with OAuth1 auth (not Bearer token)
 			mock_post.assert_called_once()
 			call_kwargs = mock_post.call_args
 			self.assertEqual(call_kwargs.kwargs["json"]["text"], "Hello from XState Workflow!")
-			self.assertIn("Bearer", call_kwargs.kwargs["headers"]["Authorization"])
+			self.assertIsNotNone(call_kwargs.kwargs.get("auth"))
+			self.assertNotIn("Authorization", call_kwargs.kwargs.get("headers", {}))
 		except (ImportError, frappe.ValidationError):
-			self.skipTest("langchain_core not installed")
+			self.skipTest("langchain_core or requests_oauthlib not installed")
 
 	@patch("xstate_workflow.langgraph.tools._resolve_credential")
 	def test_twitter_post_missing_credentials(self, mock_credential):
 		"""Test Twitter post fails with missing credentials."""
 		from xstate_workflow.langgraph.tools import ToolRegistry
 
-		# Mock missing credentials
+		# Mock missing credentials (OAuth 1.0a requires all 4)
 		mock_credential.return_value = ""
 
 		registry = ToolRegistry(
@@ -247,7 +248,7 @@ class TestTwitterPostTool(FrappeTestCase):
 		"""Test Twitter post as a reply to another tweet."""
 		from xstate_workflow.langgraph.tools import ToolRegistry
 
-		mock_credential.return_value = "test-bearer-token"
+		mock_credential.return_value = "test-credential-value"
 		mock_response = MagicMock()
 		mock_response.ok = True
 		mock_response.json.return_value = {"data": {"id": "9876543210"}}
@@ -274,7 +275,7 @@ class TestTwitterPostTool(FrappeTestCase):
 				"1234567890"
 			)
 		except (ImportError, frappe.ValidationError):
-			self.skipTest("langchain_core not installed")
+			self.skipTest("langchain_core or requests_oauthlib not installed")
 
 	@patch("xstate_workflow.langgraph.tools._resolve_credential")
 	@patch("requests.post")
@@ -282,7 +283,7 @@ class TestTwitterPostTool(FrappeTestCase):
 		"""Test Twitter post handles API errors gracefully."""
 		from xstate_workflow.langgraph.tools import ToolRegistry
 
-		mock_credential.return_value = "test-bearer-token"
+		mock_credential.return_value = "test-credential-value"
 		mock_response = MagicMock()
 		mock_response.ok = False
 		mock_response.status_code = 403
@@ -304,7 +305,7 @@ class TestTwitterPostTool(FrappeTestCase):
 			self.assertFalse(result["success"])
 			self.assertIn("403", result["error"])
 		except (ImportError, frappe.ValidationError):
-			self.skipTest("langchain_core not installed")
+			self.skipTest("langchain_core or requests_oauthlib not installed")
 
 
 class TestLinkedInPostTool(FrappeTestCase):

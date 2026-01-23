@@ -958,23 +958,36 @@ class ToolRegistry:
 			if not text or len(text) > 280:
 				return {"success": False, "error": "Tweet must be 1-280 characters"}
 
-			# Get credentials from site_config
-			bearer_token = _resolve_credential("config:twitter_bearer_token")
-			if not bearer_token:
-				return {"success": False, "error": "Twitter credentials not configured in site_config.json"}
+			# Twitter POST /2/tweets requires OAuth 1.0a User Context
+			consumer_key = _resolve_credential("config:twitter_consumer_key")
+			consumer_secret = _resolve_credential("config:twitter_consumer_secret")
+			access_token = _resolve_credential("config:twitter_access_token")
+			access_token_secret = _resolve_credential("config:twitter_access_token_secret")
+
+			if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
+				return {
+					"success": False,
+					"error": "Twitter OAuth 1.0a credentials not configured in site_config.json. "
+					"Required: twitter_consumer_key, twitter_consumer_secret, "
+					"twitter_access_token, twitter_access_token_secret"
+				}
+
+			try:
+				from requests_oauthlib import OAuth1
+			except ImportError:
+				return {"success": False, "error": "requests_oauthlib is not installed. Run: pip install requests-oauthlib"}
 
 			try:
 				payload = {"text": text}
 				if reply_to:
 					payload["reply"] = {"in_reply_to_tweet_id": reply_to}
 
+				auth = OAuth1(consumer_key, consumer_secret, access_token, access_token_secret)
 				response = requests.post(
 					"https://api.twitter.com/2/tweets",
-					headers={
-						"Authorization": f"Bearer {bearer_token}",
-						"Content-Type": "application/json",
-					},
+					headers={"Content-Type": "application/json"},
 					json=payload,
+					auth=auth,
 					timeout=30,
 				)
 
