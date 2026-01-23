@@ -34,6 +34,24 @@ ruff format xstate_workflow/
 pre-commit run --all-files
 ```
 
+### Worker Configuration
+
+XState Workflow uses dedicated queues for background job isolation:
+
+- **`workflow`** queue: State transitions, service invocations, async actions
+- **`long`** queue: Agentic node execution (LLM-based, longer timeouts)
+- **`default`** queue: Everything else (Frappe standard)
+
+```bash
+# Production: run dedicated workers per queue
+bench worker --queue workflow
+bench worker --queue long
+bench worker --queue default
+
+# Development: a single `bench worker` (no --queue) processes all queues
+bench worker
+```
+
 ### Frontend Development
 
 ```bash

@@ -631,7 +631,7 @@ def handle_agentic_node_entry(
     # Enqueue agent execution as background job
     frappe.enqueue(
         "xstate_workflow.langgraph.executor.run_agent",
-        queue="default",
+        queue="long",
         timeout=timeout,
         executor_config=executor.to_dict(),
         doc=doc_data,

@@ -58,7 +58,8 @@
    "in_list_view": 1,
    "label": "Workflow Instance",
    "options": "Machine Instance",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "node_id",
@@ -82,7 +83,8 @@
    "in_list_view": 1,
    "label": "Reference DocType",
    "options": "DocType",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "reference_name",
@@ -102,13 +104,15 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Assigned To",
-   "options": "User"
+   "options": "User",
+   "search_index": 1
   },
   {
    "fieldname": "assigned_role",
    "fieldtype": "Link",
    "label": "Assigned Role",
-   "options": "Role"
+   "options": "Role",
+   "search_index": 1
   },
   {
    "description": "User originally assigned (before delegation)",
@@ -127,7 +131,8 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Pending\nIn Progress\nCompleted\nCancelled\nEscalated\nReassigned"
+   "options": "Pending\nIn Progress\nCompleted\nCancelled\nEscalated\nReassigned",
+   "search_index": 1
   },
   {
    "default": "Medium",
@@ -171,7 +176,8 @@
   {
    "fieldname": "due_date",
    "fieldtype": "Datetime",
-   "label": "Due Date"
+   "label": "Due Date",
+   "search_index": 1
   },
   {
    "description": "SLA in hours from assignment",
@@ -194,7 +200,8 @@
    "fieldtype": "Link",
    "label": "Completed By",
    "options": "User",
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "escalation_section",

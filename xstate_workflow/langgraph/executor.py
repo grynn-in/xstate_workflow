@@ -551,7 +551,7 @@ def _schedule_retry(
 
 	frappe.enqueue(
 		"xstate_workflow.langgraph.executor.run_agent",
-		queue="default",
+		queue="long",
 		timeout=timeout,
 		enqueue_after_commit=True,
 		at_front=False,

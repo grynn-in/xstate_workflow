@@ -367,7 +367,7 @@ def create_guarded_machine():
             },
             {
                 "guard_name": "is_high_priority",
-                "python_code": "frappe.get_doc(context.get('ref_doctype'), context.get('ref_docname')).priority == 'High'"
+                "python_code": "frappe.get_value(context.get('ref_doctype'), context.get('ref_docname'), 'priority') == 'High'"
             }
         ]
     }).insert()

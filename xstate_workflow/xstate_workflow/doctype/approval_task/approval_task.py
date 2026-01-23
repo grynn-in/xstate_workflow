@@ -44,6 +44,7 @@ class ApprovalTask(Document):
 
     def after_insert(self):
         """Send notifications after task creation."""
+        self._invalidate_affected_caches()
         self.notify_assignee()
 
     def on_update(self):
@@ -55,6 +56,43 @@ class ApprovalTask(Document):
 
             # Publish realtime update
             self.publish_realtime_update()
+
+        # Invalidate cache on status or assignment changes
+        if (self.has_value_changed("status") or self.has_value_changed("assigned_to")
+                or self.has_value_changed("assigned_role")):
+            self._invalidate_affected_caches()
+
+    def _invalidate_affected_caches(self):
+        """Invalidate approval count caches for users affected by this task change."""
+        from xstate_workflow.utils.cache import invalidate_approval_counts
+
+        users_to_invalidate = set()
+        if self.assigned_to:
+            users_to_invalidate.add(self.assigned_to)
+        if self.completed_by:
+            users_to_invalidate.add(self.completed_by)
+
+        # Also invalidate previous assignee's cache on reassignment
+        prev = self.get_doc_before_save()
+        if prev and prev.assigned_to and prev.assigned_to != self.assigned_to:
+            users_to_invalidate.add(prev.assigned_to)
+
+        # Invalidate caches for users with the assigned role
+        roles_to_invalidate = set()
+        if self.assigned_role:
+            roles_to_invalidate.add(self.assigned_role)
+        if prev and prev.assigned_role and prev.assigned_role != self.assigned_role:
+            roles_to_invalidate.add(prev.assigned_role)
+        for role in roles_to_invalidate:
+            role_users = frappe.get_all(
+                "Has Role",
+                filters={"role": role, "parenttype": "User"},
+                pluck="parent"
+            )
+            users_to_invalidate.update(role_users)
+
+        for user in users_to_invalidate:
+            invalidate_approval_counts(user)
 
     def notify_assignee(self):
         """Send notification to assigned user."""

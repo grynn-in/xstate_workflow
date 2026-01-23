@@ -162,6 +162,8 @@ class ApprovalTaskManager:
         Returns:
             Number of tasks cancelled
         """
+        from xstate_workflow.utils.cache import invalidate_approval_counts
+
         if not self.workflow_instance:
             return 0
 
@@ -171,18 +173,37 @@ class ApprovalTaskManager:
                 "workflow_instance": self.workflow_instance,
                 "status": "Pending"
             },
-            pluck="name"
+            fields=["name", "assigned_to", "assigned_role"]
         )
 
-        for task_name in tasks:
+        users_to_invalidate = set()
+        roles_to_invalidate = set()
+        for task in tasks:
             frappe.db.set_value(
                 "Approval Task",
-                task_name,
+                task.name,
                 {
                     "status": "Cancelled",
                     "comments": "Workflow cancelled or transitioned"
                 }
             )
+            if task.assigned_to:
+                users_to_invalidate.add(task.assigned_to)
+            if task.assigned_role:
+                roles_to_invalidate.add(task.assigned_role)
+
+        # Fetch users with affected roles
+        if roles_to_invalidate:
+            role_users = frappe.get_all(
+                "Has Role",
+                filters={"role": ["in", list(roles_to_invalidate)], "parenttype": "User"},
+                pluck="parent"
+            )
+            users_to_invalidate.update(role_users)
+
+        # Explicitly invalidate caches since set_value bypasses hooks
+        for user in users_to_invalidate:
+            invalidate_approval_counts(user)
 
         return len(tasks)
 
@@ -432,11 +453,109 @@ def _get_task_fields() -> list[str]:
 
 def _enrich_tasks(tasks: list[dict]) -> None:
     """Enrich tasks with additional details (modifies in place)."""
+    if not tasks:
+        return
+
+    now = now_datetime()
+
+    # Collect all unique users, workflow instances, and reference docs
+    all_users = set()
+    workflow_instances = set()
+    ref_docs_by_doctype = {}  # {doctype: set(names)}
+
+    for task in tasks:
+        if task.get("assigned_to"):
+            all_users.add(task["assigned_to"])
+        if task.get("completed_by"):
+            all_users.add(task["completed_by"])
+        if task.get("workflow_instance"):
+            workflow_instances.add(task["workflow_instance"])
+        if task.get("reference_doctype") and task.get("reference_name"):
+            ref_docs_by_doctype.setdefault(task["reference_doctype"], set()).add(task["reference_name"])
+
+    # Batch-fetch user full names
+    user_names = {}
+    if all_users:
+        user_records = frappe.get_all(
+            "User",
+            filters={"name": ["in", list(all_users)]},
+            fields=["name", "full_name"]
+        )
+        user_names = {u.name: u.full_name for u in user_records}
+
+    # Batch-fetch Machine Instance creation dates
+    instance_dates = {}
+    if workflow_instances:
+        instance_records = frappe.get_all(
+            "Machine Instance",
+            filters={"name": ["in", list(workflow_instances)]},
+            fields=["name", "creation"]
+        )
+        instance_dates = {i.name: i.creation for i in instance_records}
+
+    # Batch-fetch reference doc info grouped by doctype
+    ref_doc_info = {}  # {(doctype, name): {creation, modified, owner}}
+    for doctype, names in ref_docs_by_doctype.items():
+        try:
+            docs = frappe.get_all(
+                doctype,
+                filters={"name": ["in", list(names)]},
+                fields=["name", "creation", "modified", "owner"]
+            )
+            for doc in docs:
+                ref_doc_info[(doctype, doc.name)] = doc
+                if doc.owner:
+                    all_users.add(doc.owner)
+        except Exception:
+            pass
+
+    # Fetch any additional owner users not yet in user_names
+    missing_users = all_users - set(user_names.keys())
+    if missing_users:
+        extra_records = frappe.get_all(
+            "User",
+            filters={"name": ["in", list(missing_users)]},
+            fields=["name", "full_name"]
+        )
+        for u in extra_records:
+            user_names[u.name] = u.full_name
+
+    # Batch-fetch completed tasks for last-approver lookup (one query, then filter per-task)
+    completed_by_workflow = {}  # {workflow_instance: [{name, completed_by, action_taken, completed_at}, ...]}
+    if workflow_instances:
+        try:
+            approver_rows = frappe.db.sql("""
+                SELECT name, workflow_instance, completed_by, action_taken, completed_at
+                FROM `tabApproval Task`
+                WHERE workflow_instance IN %(instances)s
+                AND status = 'Completed'
+                ORDER BY completed_at DESC
+            """, {"instances": list(workflow_instances)}, as_dict=True)
+
+            for row in approver_rows:
+                completed_by_workflow.setdefault(row.workflow_instance, []).append(row)
+                if row.completed_by:
+                    all_users.add(row.completed_by)
+        except Exception:
+            pass
+
+    # Fetch any remaining users from last_approvers
+    missing_users = all_users - set(user_names.keys())
+    if missing_users:
+        extra_records = frappe.get_all(
+            "User",
+            filters={"name": ["in", list(missing_users)]},
+            fields=["name", "full_name"]
+        )
+        for u in extra_records:
+            user_names[u.name] = u.full_name
+
+    # Now enrich each task using the pre-fetched data
     for task in tasks:
         # Parse available_actions JSON
         if task.get("available_actions"):
             try:
-                task["available_actions"] = json.loads(task.available_actions)
+                task["available_actions"] = json.loads(task["available_actions"])
             except json.JSONDecodeError:
                 task["available_actions"] = ["Approve", "Reject"]
         else:
@@ -444,66 +563,41 @@ def _enrich_tasks(tasks: list[dict]) -> None:
 
         # Calculate overdue status
         if task.get("due_date"):
-            task["is_overdue"] = frappe.utils.get_datetime(task.due_date) < now_datetime()
+            task["is_overdue"] = frappe.utils.get_datetime(task["due_date"]) < now
         else:
             task["is_overdue"] = False
 
-        # Fetch reference document details
-        try:
-            doc_info = frappe.db.get_value(
-                task.reference_doctype,
-                task.reference_name,
-                ["creation", "modified", "owner"],
-                as_dict=True
-            )
-            if doc_info:
-                task["doc_created"] = doc_info.creation
-                task["doc_modified"] = doc_info.modified
-                task["doc_owner"] = doc_info.owner
-                task["doc_owner_name"] = frappe.db.get_value(
-                    "User", doc_info.owner, "full_name"
-                ) or doc_info.owner
-        except Exception:
-            pass
+        # Reference document details
+        ref_key = (task.get("reference_doctype"), task.get("reference_name"))
+        doc_info = ref_doc_info.get(ref_key)
+        if doc_info:
+            task["doc_created"] = doc_info.creation
+            task["doc_modified"] = doc_info.modified
+            task["doc_owner"] = doc_info.owner
+            task["doc_owner_name"] = user_names.get(doc_info.owner) or doc_info.owner
 
-        # Get completed_by full name for completed tasks
+        # User full names
         if task.get("completed_by"):
-            task["completed_by_name"] = frappe.db.get_value(
-                "User", task.completed_by, "full_name"
-            ) or task.completed_by
+            task["completed_by_name"] = user_names.get(task["completed_by"]) or task["completed_by"]
 
-        # Get assigned_to full name
         if task.get("assigned_to"):
-            task["assigned_to_name"] = frappe.db.get_value(
-                "User", task.assigned_to, "full_name"
-            ) or task.assigned_to
+            task["assigned_to_name"] = user_names.get(task["assigned_to"]) or task["assigned_to"]
 
-        # Get workflow submission date from Machine Instance
+        # Workflow submission date
         if task.get("workflow_instance"):
-            task["workflow_submitted"] = frappe.db.get_value(
-                "Machine Instance", task.workflow_instance, "creation"
-            )
+            task["workflow_submitted"] = instance_dates.get(task["workflow_instance"])
 
-        # Get last approver from previous completed tasks for this workflow
-        try:
-            last_approval = frappe.db.sql("""
-                SELECT completed_by, action_taken, completed_at
-                FROM `tabApproval Task`
-                WHERE workflow_instance = %s
-                AND status = 'Completed'
-                AND name != %s
-                ORDER BY completed_at DESC
-                LIMIT 1
-            """, (task.get("workflow_instance"), task.get("name")), as_dict=True)
-
-            if last_approval:
-                approver = last_approval[0]
-                approver["completed_by_name"] = frappe.db.get_value(
-                    "User", approver.completed_by, "full_name"
-                ) or approver.completed_by
-                task["last_approver"] = approver
-        except Exception:
-            pass
+        # Last approver: find most recent completed task in this workflow that isn't the current task
+        wf_completed = completed_by_workflow.get(task.get("workflow_instance"), [])
+        for approver in wf_completed:
+            if approver.name != task.get("name"):
+                task["last_approver"] = {
+                    "completed_by": approver.completed_by,
+                    "action_taken": approver.action_taken,
+                    "completed_at": approver.completed_at,
+                    "completed_by_name": user_names.get(approver.completed_by) or approver.completed_by
+                }
+                break
 
 
 def _get_in_progress_others(
