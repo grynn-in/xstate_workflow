@@ -173,10 +173,11 @@ class ApprovalTaskManager:
                 "workflow_instance": self.workflow_instance,
                 "status": "Pending"
             },
-            fields=["name", "assigned_to"]
+            fields=["name", "assigned_to", "assigned_role"]
         )
 
         users_to_invalidate = set()
+        roles_to_invalidate = set()
         for task in tasks:
             frappe.db.set_value(
                 "Approval Task",
@@ -188,6 +189,17 @@ class ApprovalTaskManager:
             )
             if task.assigned_to:
                 users_to_invalidate.add(task.assigned_to)
+            if task.assigned_role:
+                roles_to_invalidate.add(task.assigned_role)
+
+        # Fetch users with affected roles
+        if roles_to_invalidate:
+            role_users = frappe.get_all(
+                "Has Role",
+                filters={"role": ["in", list(roles_to_invalidate)], "parenttype": "User"},
+                pluck="parent"
+            )
+            users_to_invalidate.update(role_users)
 
         # Explicitly invalidate caches since set_value bypasses hooks
         for user in users_to_invalidate:

@@ -76,6 +76,15 @@ class ApprovalTask(Document):
         if prev and prev.assigned_to and prev.assigned_to != self.assigned_to:
             users_to_invalidate.add(prev.assigned_to)
 
+        # Invalidate caches for users with the assigned role
+        if self.assigned_role:
+            role_users = frappe.get_all(
+                "Has Role",
+                filters={"role": self.assigned_role, "parenttype": "User"},
+                pluck="parent"
+            )
+            users_to_invalidate.update(role_users)
+
         for user in users_to_invalidate:
             invalidate_approval_counts(user)
 
