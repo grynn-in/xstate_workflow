@@ -192,22 +192,42 @@ def get_llm(model: str | None):
 		LangChain LLM instance
 	"""
 	# Try to get settings, fall back to defaults if not configured
+	openai_key = None
+	anthropic_key = None
+	xai_key = None
 	try:
 		settings = frappe.get_single("XState Workflow Settings")
 		default_model = getattr(settings, "default_llm_model", None) or "gpt-4"
-		openai_key = settings.get_password("openai_api_key") if hasattr(settings, "openai_api_key") else None
-		anthropic_key = (
-			settings.get_password("anthropic_api_key") if hasattr(settings, "anthropic_api_key") else None
-		)
-		xai_key = settings.get_password("xai_api_key") if hasattr(settings, "xai_api_key") else None
 	except Exception:
 		default_model = "gpt-4"
-		openai_key = None
-		anthropic_key = None
-		xai_key = None
+		settings = None
+
+	if settings:
+		try:
+			openai_key = settings.get_password("openai_api_key")
+		except Exception:
+			pass
+		try:
+			anthropic_key = settings.get_password("anthropic_api_key")
+		except Exception:
+			pass
+		try:
+			xai_key = settings.get_password("xai_api_key")
+		except Exception:
+			pass
 
 	if not model:
 		model = default_model
+
+	# Map short model names to full identifiers
+	MODEL_ALIASES = {
+		"claude-3-opus": "claude-3-opus-20240229",
+		"claude-3-sonnet": "claude-3-5-sonnet-20241022",
+		"claude-3-haiku": "claude-3-5-haiku-20241022",
+		"claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
+		"claude-3-5-haiku": "claude-3-5-haiku-20241022",
+	}
+	model = MODEL_ALIASES.get(model, model)
 
 	if model.startswith("gpt"):
 		try:
@@ -436,7 +456,7 @@ def run_agent(
 	# Create agent based on type
 	try:
 		if executor.agent_type == "react":
-			agent = create_react_agent(llm, tools, state_modifier=executor.system_prompt)
+			agent = create_react_agent(llm, tools, prompt=executor.system_prompt)
 		elif executor.agent_type == "tool_executor":
 			from langgraph.prebuilt import ToolNode
 
@@ -448,10 +468,10 @@ def run_agent(
 				"Before taking any action, first create a step-by-step plan. "
 				"Then execute the plan systematically, checking results at each step."
 			)
-			agent = create_react_agent(llm, tools, state_modifier=planning_prompt)
+			agent = create_react_agent(llm, tools, prompt=planning_prompt)
 		else:
 			# Default to react agent
-			agent = create_react_agent(llm, tools, state_modifier=executor.system_prompt)
+			agent = create_react_agent(llm, tools, prompt=executor.system_prompt)
 	except Exception as e:
 		frappe.log_error(f"Failed to create agent: {e}", "Agentic Node Error")
 		_trigger_failure_event(doctype, docname, str(e))
@@ -483,7 +503,10 @@ def run_agent(
 
 	# Run agent
 	try:
-		result = agent.invoke(input_data, config={"recursion_limit": executor.max_iterations})
+		# Each react agent iteration uses 2 graph steps (LLM call + tool execution),
+		# so recursion_limit needs to be 2*max_iterations + 1 for the final LLM response
+		recursion_limit = executor.max_iterations * 2 + 1
+		result = agent.invoke(input_data, config={"recursion_limit": recursion_limit})
 
 		# Determine next event based on transition mode and result
 		event = determine_transition_event(

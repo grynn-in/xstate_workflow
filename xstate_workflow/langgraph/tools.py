@@ -257,13 +257,13 @@ class ToolRegistry:
 
 			tool_name = tool_config["name"]
 
-			if tool_name == "frappe_read" and self.frappe_access in ("read_only", "full_crud"):
+			if tool_name == "frappe_read" and self.frappe_access in ("read_only", "read_write", "full_crud"):
 				tools.append(self._create_frappe_read_tool())
 
-			elif tool_name == "frappe_write" and self.frappe_access == "full_crud":
+			elif tool_name == "frappe_write" and self.frappe_access in ("read_write", "full_crud"):
 				tools.append(self._create_frappe_write_tool())
 
-			elif tool_name == "frappe_search" and self.frappe_access in ("read_only", "full_crud"):
+			elif tool_name == "frappe_search" and self.frappe_access in ("read_only", "read_write", "full_crud"):
 				tools.append(self._create_frappe_search_tool())
 
 			elif tool_name == "frappe_method":
