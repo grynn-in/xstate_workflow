@@ -605,6 +605,9 @@ def handle_agentic_node_entry(
         data_input=domain_node.get("data_input") or domain_node.get("dataInput"),
         enabled_mcps=domain_node.get("enabled_mcps") or domain_node.get("enabledMcps", []),
         rest_endpoints=domain_node.get("rest_endpoints") or domain_node.get("restEndpoints", []),
+        # Tool result recording
+        results_field=domain_node.get("results_field") or domain_node.get("resultsField"),
+        results_mode=domain_node.get("results_mode") or domain_node.get("resultsMode", "replace"),
     )
 
     # Get transition configuration (support both snake_case and camelCase)

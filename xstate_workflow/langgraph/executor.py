@@ -134,6 +134,8 @@ class AgentExecutor:
 		data_input: dict | None = None,
 		enabled_mcps: list | None = None,
 		rest_endpoints: list | None = None,
+		results_field: str | None = None,
+		results_mode: str = "replace",
 	):
 		self.agent_type = agent_type
 		self.system_prompt = system_prompt
@@ -146,6 +148,8 @@ class AgentExecutor:
 		self.data_input = data_input
 		self.enabled_mcps = enabled_mcps or []
 		self.rest_endpoints = rest_endpoints or []
+		self.results_field = results_field
+		self.results_mode = results_mode
 
 	def to_dict(self) -> dict:
 		"""Serialize executor configuration for background job."""
@@ -161,6 +165,8 @@ class AgentExecutor:
 			"data_input": self.data_input,
 			"enabled_mcps": self.enabled_mcps,
 			"rest_endpoints": self.rest_endpoints,
+			"results_field": self.results_field,
+			"results_mode": self.results_mode,
 		}
 
 	@classmethod
@@ -178,6 +184,8 @@ class AgentExecutor:
 			data_input=data.get("data_input"),
 			enabled_mcps=data.get("enabled_mcps", []),
 			rest_endpoints=data.get("rest_endpoints", []),
+			results_field=data.get("results_field"),
+			results_mode=data.get("results_mode", "replace"),
 		)
 
 
@@ -338,6 +346,54 @@ def _clear_agent_checkpoint(doctype: str, docname: str) -> None:
 		pass
 
 
+def _write_tool_results(
+	tool_registry,
+	executor: AgentExecutor,
+	doctype: str,
+	docname: str,
+) -> None:
+	"""
+	Write accumulated publishing tool results to the configured document field.
+
+	Args:
+		tool_registry: ToolRegistry instance with _tool_results
+		executor: AgentExecutor with results_field/results_mode config
+		doctype: Document DocType
+		docname: Document name
+	"""
+	if not executor.results_field:
+		return
+
+	results = tool_registry._tool_results
+	if not results:
+		return
+
+	try:
+		if executor.results_mode == "append":
+			# Read existing value and append
+			existing = frappe.db.get_value(doctype, docname, executor.results_field)
+			if existing:
+				try:
+					existing_list = json.loads(existing)
+					if isinstance(existing_list, list):
+						results = existing_list + results
+				except (json.JSONDecodeError, TypeError):
+					pass
+
+		frappe.db.set_value(
+			doctype,
+			docname,
+			executor.results_field,
+			json.dumps(results),
+			update_modified=False,
+		)
+	except Exception as e:
+		frappe.log_error(
+			f"Failed to write tool results to {doctype}/{docname}.{executor.results_field}: {e}",
+			"Agentic Node Tool Results",
+		)
+
+
 def run_agent(
 	executor_config: dict,
 	doc: dict,
@@ -493,6 +549,9 @@ def run_agent(
 			custom_events=custom_events,
 		)
 
+		# Write tool results to document before transition
+		_write_tool_results(tool_registry, executor, doctype, docname)
+
 		# Clear checkpoint on success
 		_clear_agent_checkpoint(doctype, docname)
 
@@ -505,6 +564,9 @@ def run_agent(
 			f"Agent execution failed (attempt={attempt + 1}, type={error_type}): {e}",
 			"Agentic Node Error"
 		)
+
+		# Write partial tool results even on failure
+		_write_tool_results(tool_registry, executor, doctype, docname)
 
 		# Save checkpoint for potential retry
 		if retry_on_failure and attempt < max_retries:

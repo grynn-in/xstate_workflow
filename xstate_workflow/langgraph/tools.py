@@ -112,6 +112,15 @@ class ToolRegistry:
 	- REST endpoint tool support
 	"""
 
+	# Publishing tools mapped to platform names for result recording
+	PUBLISHING_TOOLS = {
+		"twitter_post": "twitter",
+		"linkedin_post": "linkedin",
+		"facebook_post": "facebook",
+		"reddit_post": "reddit",
+		"send_newsletter": "newsletter",
+	}
+
 	# Default rate limits per tool (calls per minute)
 	DEFAULT_RATE_LIMITS = {
 		"frappe_read": 60,
@@ -173,6 +182,9 @@ class ToolRegistry:
 			for tool_name, limit in self.rate_limits.items()
 		}
 
+		# Accumulated results from publishing tools (read by executor after agent.invoke)
+		self._tool_results: list[dict] = []
+
 	def _check_rate_limit(self, tool_name: str) -> tuple[bool, str | None]:
 		"""
 		Check if a tool call is within rate limits.
@@ -191,6 +203,42 @@ class ToolRegistry:
 			return (False, f"Rate limit exceeded for {tool_name}. Max {self.rate_limits.get(tool_name, 30)} calls per minute.")
 
 		return (True, None)
+
+	def _wrap_publishing_tool(self, tool, platform: str):
+		"""
+		Wrap a publishing tool to intercept its return value and record results.
+
+		Args:
+			tool: LangChain tool instance
+			platform: Platform name (twitter, linkedin, etc.)
+
+		Returns:
+			The same tool with its func replaced by a wrapper
+		"""
+		original_func = tool.func
+		registry = self
+
+		def wrapped_func(*args, **kwargs):
+			result = original_func(*args, **kwargs)
+			# Build structured result entry
+			entry = {
+				"tool": tool.name,
+				"platform": platform,
+				"success": result.get("success", False) if isinstance(result, dict) else False,
+				"url": result.get("url") if isinstance(result, dict) else None,
+				"post_id": (
+					result.get("tweet_id") or result.get("post_id")
+					if isinstance(result, dict)
+					else None
+				),
+				"error": result.get("error") if isinstance(result, dict) else None,
+				"timestamp": str(frappe.utils.now_datetime()),
+			}
+			registry._tool_results.append(entry)
+			return result
+
+		tool.func = wrapped_func
+		return tool
 
 	def _is_method_allowed(self, method: str) -> bool:
 		"""
@@ -300,6 +348,12 @@ class ToolRegistry:
 		# REST endpoint tools
 		rest_tools = self._create_rest_tools()
 		tools.extend(rest_tools)
+
+		# Wrap publishing tools to capture results
+		for tool in tools:
+			tool_name = getattr(tool, "name", "")
+			if tool_name in self.PUBLISHING_TOOLS:
+				self._wrap_publishing_tool(tool, self.PUBLISHING_TOOLS[tool_name])
 
 		return tools
 
