@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { ThresholdGateNodeData, CheckCondition } from '../../../types';
+import { getEventColor } from '../../../types';
 
 export interface ThresholdGateNodeProps {
   id: string;
@@ -42,7 +43,7 @@ function formatCondition(condition: CheckCondition): string {
 }
 
 function ThresholdGateNodeComponent({ data, selected }: ThresholdGateNodeProps) {
-  const { label, threshold, checkType, checkMode, methodCheck, conditions, conditionLogic } = data;
+  const { label, threshold, checkType, checkMode, methodCheck, conditions, conditionLogic, outgoingEvents } = data;
 
   // Determine effective mode (backward compatibility)
   const effectiveMode = useMemo(() => {
@@ -170,29 +171,31 @@ function ThresholdGateNodeComponent({ data, selected }: ThresholdGateNodeProps) 
         </div>
       </div>
 
-      {/* Pass/Fail handles */}
-      <div className="xsw-threshold-outputs">
-        <div className="xsw-threshold-output pass">
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="pass"
-            className="xsw-handle xsw-handle-pass"
-            style={{ left: '25%' }}
-          />
-          <span className="xsw-output-label">Pass</span>
-        </div>
-        <div className="xsw-threshold-output fail">
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="fail"
-            className="xsw-handle xsw-handle-fail"
-            style={{ left: '75%' }}
-          />
-          <span className="xsw-output-label">Fail</span>
-        </div>
-      </div>
+      {/* Output Handles - dynamic based on outgoing events */}
+      {outgoingEvents && outgoingEvents.length > 1 ? (
+        outgoingEvents.map((event, index) => {
+          const position = ((index + 1) / (outgoingEvents.length + 1)) * 100;
+          return (
+            <Handle
+              key={event}
+              type="source"
+              position={Position.Bottom}
+              id={event}
+              className="xsw-handle xsw-handle-event"
+              style={{
+                left: `${position}%`,
+                backgroundColor: getEventColor(event),
+              }}
+            />
+          );
+        })
+      ) : (
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className="xsw-handle"
+        />
+      )}
     </div>
   );
 }

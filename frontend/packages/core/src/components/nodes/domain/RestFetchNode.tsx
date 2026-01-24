@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { RestFetchNodeData } from '../../../types';
+import { getEventColor } from '../../../types';
 
 export interface RestFetchNodeProps {
   id: string;
@@ -17,6 +18,7 @@ function RestFetchNodeComponent({ data, selected }: RestFetchNodeProps) {
     authType,
     saveResponseTo,
     timeoutSeconds,
+    outgoingEvents,
   } = data;
 
   // Get a shortened URL for display
@@ -101,21 +103,31 @@ function RestFetchNodeComponent({ data, selected }: RestFetchNodeProps) {
         )}
       </div>
 
-      {/* Output Handles - Success and Error */}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="success"
-        className="xsw-handle xsw-handle-success"
-        style={{ left: '30%' }}
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="error"
-        className="xsw-handle xsw-handle-failure"
-        style={{ left: '70%' }}
-      />
+      {/* Output Handles - dynamic based on outgoing events */}
+      {outgoingEvents && outgoingEvents.length > 1 ? (
+        outgoingEvents.map((event, index) => {
+          const position = ((index + 1) / (outgoingEvents.length + 1)) * 100;
+          return (
+            <Handle
+              key={event}
+              type="source"
+              position={Position.Bottom}
+              id={event}
+              className="xsw-handle xsw-handle-event"
+              style={{
+                left: `${position}%`,
+                backgroundColor: getEventColor(event),
+              }}
+            />
+          );
+        })
+      ) : (
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className="xsw-handle"
+        />
+      )}
     </div>
   );
 }
