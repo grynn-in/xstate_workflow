@@ -149,6 +149,13 @@ function BaseStateNodeComponent({ data, selected, children }: BaseStateNodeProps
               />
             );
           })}
+          {/* Hidden default handle for delayed/always edges (no sourceHandle) */}
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            className="xsw-handle"
+            style={{ opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, left: '50%' }}
+          />
         </>
       ) : (
         /* Default single centered handle */

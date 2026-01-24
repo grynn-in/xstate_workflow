@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { ThresholdGateNodeData, CheckCondition } from '../../../types';
+import { getEventColor } from '../../../types';
 
 export interface ThresholdGateNodeProps {
   id: string;
@@ -42,7 +43,7 @@ function formatCondition(condition: CheckCondition): string {
 }
 
 function ThresholdGateNodeComponent({ data, selected }: ThresholdGateNodeProps) {
-  const { label, threshold, checkType, checkMode, methodCheck, conditions, conditionLogic } = data;
+  const { label, threshold, checkType, checkMode, methodCheck, conditions, conditionLogic, outgoingEvents } = data;
 
   // Determine effective mode (backward compatibility)
   const effectiveMode = useMemo(() => {
@@ -170,29 +171,53 @@ function ThresholdGateNodeComponent({ data, selected }: ThresholdGateNodeProps) 
         </div>
       </div>
 
-      {/* Pass/Fail handles */}
-      <div className="xsw-threshold-outputs">
-        <div className="xsw-threshold-output pass">
+      {/* Output Handles - dynamic based on outgoing events */}
+      {outgoingEvents && outgoingEvents.length > 1 ? (
+        <>
+          {/* Event labels row */}
+          <div className="xsw-event-handles-labels">
+            {outgoingEvents.map((event) => (
+              <span
+                key={`label-${event}`}
+                className="xsw-event-handle-label"
+                style={{ color: getEventColor(event) }}
+              >
+                {event}
+              </span>
+            ))}
+          </div>
+          {/* Dynamic handles positioned at percentages */}
+          {outgoingEvents.map((event, index) => {
+            const position = ((index + 1) / (outgoingEvents.length + 1)) * 100;
+            return (
+              <Handle
+                key={event}
+                type="source"
+                position={Position.Bottom}
+                id={event}
+                className="xsw-handle xsw-handle-event"
+                style={{
+                  left: `${position}%`,
+                  backgroundColor: getEventColor(event),
+                }}
+              />
+            );
+          })}
+          {/* Hidden default handle for delayed/always edges (no sourceHandle) */}
           <Handle
             type="source"
             position={Position.Bottom}
-            id="pass"
-            className="xsw-handle xsw-handle-pass"
-            style={{ left: '25%' }}
+            className="xsw-handle"
+            style={{ opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, left: '50%' }}
           />
-          <span className="xsw-output-label">Pass</span>
-        </div>
-        <div className="xsw-threshold-output fail">
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="fail"
-            className="xsw-handle xsw-handle-fail"
-            style={{ left: '75%' }}
-          />
-          <span className="xsw-output-label">Fail</span>
-        </div>
-      </div>
+        </>
+      ) : (
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className="xsw-handle"
+        />
+      )}
     </div>
   );
 }

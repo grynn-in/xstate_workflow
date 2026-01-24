@@ -2,6 +2,7 @@ import { memo, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { ParallelApprovalNodeData } from '../../../types';
+import { getEventColor } from '../../../types';
 
 export interface ParallelApprovalNodeProps {
   id: string;
@@ -17,7 +18,7 @@ const COMPLETION_RULE_LABELS: Record<string, string> = {
 
 function ParallelApprovalNodeComponent({ data, selected }: ParallelApprovalNodeProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { label, approvers = [], completionRule, quorumCount, slaHours, priority, onReject } = data;
+  const { label, approvers = [], completionRule, quorumCount, slaHours, priority, onReject, outgoingEvents } = data;
 
   // Get completion rule display text
   const completionText = completionRule === 'quorum'
@@ -136,27 +137,53 @@ function ParallelApprovalNodeComponent({ data, selected }: ParallelApprovalNodeP
         </>
       )}
 
-      {/* Output Handles */}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="approved"
-        className="xsw-handle xsw-handle-approve"
-        style={{ left: '30%' }}
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="rejected"
-        className="xsw-handle xsw-handle-reject"
-        style={{ left: '70%' }}
-      />
-
-      {/* Output labels */}
-      <div className="xsw-parallel-outputs">
-        <span className="xsw-output-label approve">✓</span>
-        <span className="xsw-output-label reject">✗</span>
-      </div>
+      {/* Output Handles - dynamic based on outgoing events */}
+      {outgoingEvents && outgoingEvents.length > 1 ? (
+        <>
+          {/* Event labels row */}
+          <div className="xsw-event-handles-labels">
+            {outgoingEvents.map((event) => (
+              <span
+                key={`label-${event}`}
+                className="xsw-event-handle-label"
+                style={{ color: getEventColor(event) }}
+              >
+                {event}
+              </span>
+            ))}
+          </div>
+          {/* Dynamic handles positioned at percentages */}
+          {outgoingEvents.map((event, index) => {
+            const position = ((index + 1) / (outgoingEvents.length + 1)) * 100;
+            return (
+              <Handle
+                key={event}
+                type="source"
+                position={Position.Bottom}
+                id={event}
+                className="xsw-handle xsw-handle-event"
+                style={{
+                  left: `${position}%`,
+                  backgroundColor: getEventColor(event),
+                }}
+              />
+            );
+          })}
+          {/* Hidden default handle for delayed/always edges (no sourceHandle) */}
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            className="xsw-handle"
+            style={{ opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, left: '50%' }}
+          />
+        </>
+      ) : (
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className="xsw-handle"
+        />
+      )}
     </div>
   );
 }

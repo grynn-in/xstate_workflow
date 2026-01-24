@@ -147,6 +147,7 @@ has_permission = {
 
 before_install = "xstate_workflow.install.before_install"
 after_install = "xstate_workflow.install.after_install"
+after_migrate = "xstate_workflow.install.after_migrate"
 
 # ============================================================================
 # BOOT SESSION

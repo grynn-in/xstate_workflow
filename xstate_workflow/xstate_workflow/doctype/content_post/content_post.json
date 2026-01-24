@@ -115,8 +115,8 @@
 			"fieldname": "status",
 			"fieldtype": "Select",
 			"label": "Status",
-			"options": "Researching\nGenerating\nReview\nApproved\nPublishing\nPublished\nFailed",
-			"default": "Researching",
+			"options": "Draft\nResearching\nGenerating\nReview\nApproved\nPublishing\nPublished\nFailed",
+			"default": "Draft",
 			"in_list_view": 1
 		},
 		{
