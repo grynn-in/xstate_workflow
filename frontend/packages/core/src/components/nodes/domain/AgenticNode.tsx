@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { AgenticNodeData } from '../../../types';
+import { getEventColor } from '../../../types';
 
 export interface AgenticNodeProps {
   id: string;
@@ -20,6 +21,7 @@ function AgenticNodeComponent({ data, selected }: AgenticNodeProps) {
     customEvents,
     maxIterations,
     timeoutSeconds,
+    outgoingEvents,
   } = data;
 
   const toolCount = enabledTools?.filter(t => t.enabled).length || 0;
@@ -113,73 +115,41 @@ function AgenticNodeComponent({ data, selected }: AgenticNodeProps) {
         )}
       </div>
 
-      {/* Output Handles based on transition mode */}
-      {transitionMode === 'simple' && (
+      {/* Output Handles - dynamic based on outgoing events */}
+      {outgoingEvents && outgoingEvents.length > 1 ? (
         <>
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="success"
-            className="xsw-handle xsw-handle-success"
-            style={{ left: '30%' }}
-          />
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="failure"
-            className="xsw-handle xsw-handle-failure"
-            style={{ left: '70%' }}
-          />
+          {/* Event labels row */}
+          <div className="xsw-event-handles-labels">
+            {outgoingEvents.map((event) => (
+              <span
+                key={`label-${event}`}
+                className="xsw-event-handle-label"
+                style={{ color: getEventColor(event) }}
+              >
+                {event}
+              </span>
+            ))}
+          </div>
+          {/* Dynamic handles positioned at percentages */}
+          {outgoingEvents.map((event, index) => {
+            const position = ((index + 1) / (outgoingEvents.length + 1)) * 100;
+            return (
+              <Handle
+                key={event}
+                type="source"
+                position={Position.Bottom}
+                id={event}
+                className="xsw-handle xsw-handle-event"
+                style={{
+                  left: `${position}%`,
+                  backgroundColor: getEventColor(event),
+                }}
+              />
+            );
+          })}
         </>
-      )}
-      {transitionMode === 'decision' && (
-        <Handle
-          type="source"
-          position={Position.Bottom}
-          id="decision"
-          className="xsw-handle xsw-handle-decision"
-        />
-      )}
-      {transitionMode === 'custom_events' && (
-        <Handle
-          type="source"
-          position={Position.Right}
-          id="events"
-          className="xsw-handle xsw-handle-events"
-        />
-      )}
-      {transitionMode === 'all' && (
-        <>
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="success"
-            className="xsw-handle xsw-handle-success"
-            style={{ left: '25%' }}
-          />
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="failure"
-            className="xsw-handle xsw-handle-failure"
-            style={{ left: '50%' }}
-          />
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="decision"
-            className="xsw-handle xsw-handle-decision"
-            style={{ left: '75%' }}
-          />
-          <Handle
-            type="source"
-            position={Position.Right}
-            id="events"
-            className="xsw-handle xsw-handle-events"
-          />
-        </>
-      )}
-      {!transitionMode && (
+      ) : (
+        /* Default single centered handle */
         <Handle
           type="source"
           position={Position.Bottom}

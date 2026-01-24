@@ -400,6 +400,17 @@ function updateNodesWithOutgoingEvents(nodes: WorkflowNode[], edges: WorkflowEdg
       node.data.outgoingEvents = outgoingEvents;
     }
   }
+
+  // Fix edge sourceHandles: remove sourceHandle from edges whose source node
+  // does NOT have outgoingEvents set (those nodes use a default handle with no ID)
+  for (const edge of edges) {
+    if (edge.sourceHandle) {
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      if (sourceNode && !sourceNode.data.outgoingEvents) {
+        delete edge.sourceHandle;
+      }
+    }
+  }
 }
 
 /**

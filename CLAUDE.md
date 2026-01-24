@@ -42,6 +42,13 @@ XState Workflow uses dedicated queues for background job isolation:
 - **`long`** queue: Agentic node execution (LLM-based, longer timeouts)
 - **`default`** queue: Everything else (Frappe standard)
 
+The `workflow` queue is auto-registered in `site_config.json` on install and migrate.
+To register manually (e.g., for common_site_config):
+
+```bash
+bench set-config -g -p workers '{"workflow": {"timeout": 300}}'
+```
+
 ```bash
 # Production: run dedicated workers per queue
 bench worker --queue workflow
