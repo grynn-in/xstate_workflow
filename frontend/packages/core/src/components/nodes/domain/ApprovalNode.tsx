@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { ApprovalNodeData } from '../../../types';
+import { getEventColor } from '../../../types';
 
 export interface ApprovalNodeProps {
   id: string;
@@ -10,7 +11,7 @@ export interface ApprovalNodeProps {
 }
 
 function ApprovalNodeComponent({ data, selected }: ApprovalNodeProps) {
-  const { label, resolver, availableActions, slaHours, priority } = data;
+  const { label, resolver, availableActions, slaHours, priority, outgoingEvents } = data;
 
   return (
     <div
@@ -78,21 +79,31 @@ function ApprovalNodeComponent({ data, selected }: ApprovalNodeProps) {
         </div>
       )}
 
-      {/* Output Handles for each action */}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="approve"
-        className="xsw-handle xsw-handle-approve"
-        style={{ left: '30%' }}
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="reject"
-        className="xsw-handle xsw-handle-reject"
-        style={{ left: '70%' }}
-      />
+      {/* Output Handles - dynamic based on outgoing events */}
+      {outgoingEvents && outgoingEvents.length > 1 ? (
+        outgoingEvents.map((event, index) => {
+          const position = ((index + 1) / (outgoingEvents.length + 1)) * 100;
+          return (
+            <Handle
+              key={event}
+              type="source"
+              position={Position.Bottom}
+              id={event}
+              className="xsw-handle xsw-handle-event"
+              style={{
+                left: `${position}%`,
+                backgroundColor: getEventColor(event),
+              }}
+            />
+          );
+        })
+      ) : (
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className="xsw-handle"
+        />
+      )}
     </div>
   );
 }
