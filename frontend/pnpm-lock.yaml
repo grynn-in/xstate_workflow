@@ -75,40 +75,6 @@ importers:
       '@xstate-workflow/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@xstate-workflow/frappe-adapter':
-        specifier: workspace:*
-        version: link:../../packages/frappe-adapter
-      '@xyflow/react':
-        specifier: ^12.3.6
-        version: 12.10.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-    devDependencies:
-      '@types/react':
-        specifier: ^18.3.12
-        version: 18.3.27
-      '@types/react-dom':
-        specifier: ^18.3.1
-        version: 18.3.7(@types/react@18.3.27)
-      '@vitejs/plugin-react':
-        specifier: ^4.3.4
-        version: 4.7.0(vite@5.4.21)
-      typescript:
-        specifier: ^5.3.3
-        version: 5.9.3
-      vite:
-        specifier: ^5.4.11
-        version: 5.4.21
-
-  apps/standalone-v2:
-    dependencies:
-      '@xstate-workflow/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       '@xstate-workflow/core-v2':
         specifier: workspace:*
         version: link:../../packages/core-v2

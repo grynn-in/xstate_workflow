@@ -172,8 +172,8 @@ frontend/
 │   ├── desk-widget/    # Desk form integration
 │   └── standalone/     # Standalone builder app
 ├── apps/
-│   ├── standalone/     # V1 Builder entry point
-│   └── standalone-v2/  # V2 Builder with advanced features
+│   ├── standalone/     # Standalone builder entry point
+│   └── desk-widget/    # Desk form widget
 ```
 
 **Tech Stack:**
@@ -182,15 +182,11 @@ frontend/
 - ReactFlow for visual editing
 - Vitest for testing
 
-### Builder Versions
+### Builder Features (`/xstate-builder`)
 
-**V1 Builder** (`/xstate-builder`):
 - Core workflow building functionality
 - Drag-and-drop node placement
 - Transition configuration
-
-**V2 Builder** (`/xstate-builder-v2`):
-- All V1 features plus:
 - **Undo/Redo**: Full history support (Ctrl+Z / Ctrl+Shift+Z)
 - **Copy/Paste**: Duplicate nodes and edges (Ctrl+C / Ctrl+V)
 - **Helper Lines**: Alignment guides when dragging nodes

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@xstate-workflow/core": "workspace:*",
+    "@xstate-workflow/core-v2": "workspace:*",
     "@xstate-workflow/frappe-adapter": "workspace:*",
     "@xyflow/react": "^12.3.6",
     "react": "^18.3.1",

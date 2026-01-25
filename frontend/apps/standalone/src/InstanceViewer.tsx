@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -8,15 +8,22 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
+// Import from core-v2 which re-exports core + v2 enhancements
 import {
   nodeTypes,
-  edgeTypes,
   RuntimeInfoPanel,
   useInstanceViewer,
   type WorkflowNode,
   type WorkflowEdge,
-} from '@xstate-workflow/core';
+} from '@xstate-workflow/core-v2';
+import { useTransitionAnimation, usePathHighlighting, TransitionEdgeV2 } from '@xstate-workflow/core-v2';
 import '@xstate-workflow/core/styles';
+import '@xstate-workflow/core-v2/styles';
+
+// V2 edge types with animation support
+const edgeTypesV2 = {
+  transition: TransitionEdgeV2,
+};
 
 interface InstanceViewerProps {
   machineId: string;
@@ -72,10 +79,10 @@ function StatusBadge({
 }
 
 /**
- * Instance Viewer Component
+ * Instance Viewer Component V2
  *
  * Displays a read-only view of a workflow with the current runtime state highlighted.
- * Used to visualize where a specific document is in its workflow.
+ * Enhanced with transition animations and path highlighting.
  */
 export function InstanceViewer({ machineId, doctype, docname }: InstanceViewerProps) {
   const {
@@ -101,6 +108,55 @@ export function InstanceViewer({ machineId, doctype, docname }: InstanceViewerPr
     pollInterval: 5000,
   });
 
+  // Track previous state to detect transitions
+  const prevStateRef = useRef<string | null>(null);
+  const prevTransitionCountRef = useRef<number>(0);
+
+  // Animation hook for transition effects
+  const { animatingEdges, triggerAnimationByNodes, isAnimating } = useTransitionAnimation({
+    edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target })),
+    duration: 800,
+    onAnimationComplete: (edgeId, fromNode, toNode) => {
+      console.log(`Animation complete: ${fromNode} -> ${toNode} (edge: ${edgeId})`);
+    },
+  });
+
+  // Path highlighting hook for showing transition sequence
+  const {
+    isEdgeVisited,
+    getEdgeSequence,
+    pathStats,
+  } = usePathHighlighting({
+    edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target })),
+    nodes: nodes.map(n => ({ id: n.id, data: { label: n.data?.label } })),
+    transitionLog: transitionLog.map(t => ({
+      from_state: t.from_state || '',
+      to_state: t.to_state || '',
+      event: t.event,
+    })),
+    currentState: currentState || '',
+  });
+
+  // Trigger animation when state changes
+  useEffect(() => {
+    // Check if transition count increased (more reliable than state change)
+    if (transitionCount > prevTransitionCountRef.current && transitionLog.length > 0) {
+      const lastTransition = transitionLog[transitionLog.length - 1];
+      if (lastTransition.from_state && lastTransition.to_state) {
+        // Find node IDs from state names
+        const fromNodeId = nodes.find(n => n.data?.label === lastTransition.from_state || n.id === lastTransition.from_state)?.id;
+        const toNodeId = nodes.find(n => n.data?.label === lastTransition.to_state || n.id === lastTransition.to_state)?.id;
+
+        if (fromNodeId && toNodeId) {
+          console.log(`Triggering animation: ${fromNodeId} -> ${toNodeId}`);
+          triggerAnimationByNodes(fromNodeId, toNodeId);
+        }
+      }
+    }
+    prevTransitionCountRef.current = transitionCount;
+    prevStateRef.current = currentState;
+  }, [transitionCount, currentState, transitionLog, nodes, triggerAnimationByNodes]);
+
   // Apply runtime state to nodes
   const nodesWithRuntimeState: WorkflowNode[] = useMemo(() => {
     return nodes.map((node) => ({
@@ -117,7 +173,7 @@ export function InstanceViewer({ machineId, doctype, docname }: InstanceViewerPr
     }));
   }, [nodes, currentNodeId, visitedNodeIds, availableTargetNodeIds]);
 
-  // Apply runtime state to edges
+  // Apply runtime state to edges (with animation and path highlighting)
   const edgesWithRuntimeState: WorkflowEdge[] = useMemo(() => {
     return edges.map((edge) => {
       const sourceNode = nodes.find((n) => n.id === edge.source);
@@ -133,18 +189,28 @@ export function InstanceViewer({ machineId, doctype, docname }: InstanceViewerPr
           (e) => e.event === edge.data?.event && !e.enabled
         );
 
+      // Check if this edge is currently animating
+      const edgeIsAnimating = isAnimating(edge.id);
+
+      // Get path highlighting data
+      const visited = isEdgeVisited(edge.id);
+      const sequenceNumber = getEdgeSequence(edge.id);
+
       return {
         ...edge,
+        type: 'transition', // Ensure using our custom edge type
         data: {
           ...edge.data,
           isFromCurrentState: isFromCurrent,
           isAvailableTransition: isAvailable,
-          isVisitedTransition: false, // Could compute from transition log
+          isVisitedTransition: visited,
           isDisabledTransition: isDisabled,
+          isAnimating: edgeIsAnimating,
+          sequenceNumber: sequenceNumber,
         },
       };
     });
-  }, [edges, nodes, currentNodeId, availableEvents]);
+  }, [edges, nodes, currentNodeId, availableEvents, isAnimating, animatingEdges, isEdgeVisited, getEdgeSequence]);
 
   // Show loading state
   if (isLoading && nodes.length === 0) {
@@ -203,6 +269,34 @@ export function InstanceViewer({ machineId, doctype, docname }: InstanceViewerPr
               {doctype}: {docname}
             </span>
             <StatusBadge status={status} currentState={currentState} />
+            {pathStats.totalTransitions > 0 && (
+              <span
+                style={{
+                  marginLeft: '8px',
+                  padding: '2px 8px',
+                  fontSize: '11px',
+                  background: 'rgba(34, 197, 94, 0.1)',
+                  color: '#16a34a',
+                  borderRadius: '4px',
+                }}
+                title={`${pathStats.uniqueNodesVisited} nodes, ${pathStats.uniqueEdgesVisited} edges visited`}
+              >
+                {pathStats.totalTransitions} transition{pathStats.totalTransitions !== 1 ? 's' : ''}
+              </span>
+            )}
+            <span
+              style={{
+                marginLeft: '8px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                fontWeight: 600,
+                background: '#3b82f6',
+                color: 'white',
+                borderRadius: '4px',
+              }}
+            >
+              V2
+            </span>
           </div>
           <div className="xsw-toolbar-right">
             <button
@@ -222,7 +316,7 @@ export function InstanceViewer({ machineId, doctype, docname }: InstanceViewerPr
           nodes={nodesWithRuntimeState}
           edges={edgesWithRuntimeState}
           nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
+          edgeTypes={edgeTypesV2}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={false}

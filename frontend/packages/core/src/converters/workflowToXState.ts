@@ -12,6 +12,8 @@ import type {
   ThresholdGateNodeData,
   ClassificationBranchNodeData,
   AutoActionNodeData,
+  AgenticNodeData,
+  RestFetchNodeData,
   EndNodeData,
 } from '../types';
 
@@ -311,6 +313,14 @@ function buildDomainNodeConfig(
       // Auto action runs entry action and transitions immediately
       return buildAutoActionConfig(node, allNodes, allEdges);
 
+    case 'agentic':
+      // Agentic node runs an AI agent
+      return buildAgenticNodeConfig(node, allNodes, allEdges);
+
+    case 'rest_fetch':
+      // REST fetch node calls an API and stores result
+      return buildRestFetchNodeConfig(node, allNodes, allEdges);
+
     default:
       return config;
   }
@@ -379,6 +389,46 @@ function extractDomainNodeMeta(node: WorkflowNode): Record<string, unknown> {
         action_type: actionData.actionType,
         action_config: actionData.actionConfig,
         label: actionData.label,
+      };
+    }
+
+    case 'agentic': {
+      const agenticData = node.data as AgenticNodeData;
+      return {
+        label: agenticData.label,
+        agent_type: agenticData.agentType,
+        system_prompt: agenticData.systemPrompt,
+        model: agenticData.model,
+        enabled_tools: agenticData.enabledTools,
+        frappe_access: agenticData.frappeAccess,
+        allowed_methods: agenticData.allowedMethods,
+        data_input: agenticData.dataInput,
+        enabled_mcps: agenticData.enabledMcps,
+        rest_endpoints: agenticData.restEndpoints,
+        transition_mode: agenticData.transitionMode,
+        decision_routes: agenticData.decisionRoutes,
+        custom_events: agenticData.customEvents,
+        max_iterations: agenticData.maxIterations,
+        timeout_seconds: agenticData.timeoutSeconds,
+        retry_on_failure: agenticData.retryOnFailure,
+        max_retries: agenticData.maxRetries,
+      };
+    }
+
+    case 'rest_fetch': {
+      const restFetchData = node.data as RestFetchNodeData;
+      return {
+        label: restFetchData.label,
+        url: restFetchData.url,
+        method: restFetchData.method,
+        auth_type: restFetchData.authType,
+        auth_credential: restFetchData.authCredential,
+        headers: restFetchData.headers,
+        body: restFetchData.body,
+        save_response_to: restFetchData.saveResponseTo,
+        on_success: restFetchData.onSuccess,
+        on_error: restFetchData.onError,
+        timeout_seconds: restFetchData.timeoutSeconds,
       };
     }
 
@@ -717,6 +767,181 @@ function buildAutoActionConfig(
     const targetNode = allNodes.find((n) => n.id === outgoingEdges[0].target);
     if (targetNode) {
       config.always = [{ target: targetNode.data.label }];
+    }
+  }
+
+  return config;
+}
+
+function buildAgenticNodeConfig(
+  node: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[]
+): XStateStateConfig {
+  const agenticData = node.data as AgenticNodeData;
+  const config: XStateStateConfig = {
+    meta: {
+      domain_node: {
+        type: 'agentic',
+        label: agenticData.label,
+        agent_type: agenticData.agentType,
+        system_prompt: agenticData.systemPrompt,
+        model: agenticData.model,
+        enabled_tools: agenticData.enabledTools,
+        frappe_access: agenticData.frappeAccess,
+        allowed_methods: agenticData.allowedMethods,
+        data_input: agenticData.dataInput,
+        enabled_mcps: agenticData.enabledMcps,
+        rest_endpoints: agenticData.restEndpoints,
+        transition_mode: agenticData.transitionMode,
+        decision_routes: agenticData.decisionRoutes,
+        custom_events: agenticData.customEvents,
+        max_iterations: agenticData.maxIterations,
+        timeout_seconds: agenticData.timeoutSeconds,
+        retry_on_failure: agenticData.retryOnFailure,
+        max_retries: agenticData.maxRetries,
+      },
+    },
+    // Entry action invokes the agent
+    entry: ['invoke_agent'],
+    on: {},
+  };
+
+  // Build transitions based on transition mode
+  const outgoingEdges = allEdges.filter((e) => e.source === node.id);
+  const transitionMode = agenticData.transitionMode || 'simple';
+
+  if (transitionMode === 'simple') {
+    // Simple mode: DONE and ERROR events
+    const doneEdge = outgoingEdges.find((e) =>
+      (e as { sourceHandle?: string }).sourceHandle === 'done'
+    );
+    const errorEdge = outgoingEdges.find((e) =>
+      (e as { sourceHandle?: string }).sourceHandle === 'error'
+    );
+
+    if (doneEdge) {
+      const targetNode = allNodes.find((n) => n.id === doneEdge.target);
+      if (targetNode) {
+        config.on!['DONE'] = { target: targetNode.data.label };
+      }
+    }
+    if (errorEdge) {
+      const targetNode = allNodes.find((n) => n.id === errorEdge.target);
+      if (targetNode) {
+        config.on!['ERROR'] = { target: targetNode.data.label };
+      }
+    }
+  } else if (transitionMode === 'decision') {
+    // Decision mode: route-based transitions
+    for (const route of agenticData.decisionRoutes || []) {
+      const routeEdge = outgoingEdges.find((e) =>
+        (e as { sourceHandle?: string }).sourceHandle === `route-${route.condition}`
+      );
+      if (routeEdge) {
+        const targetNode = allNodes.find((n) => n.id === routeEdge.target);
+        if (targetNode) {
+          config.on![route.condition.toUpperCase()] = { target: targetNode.data.label };
+        }
+      }
+    }
+    // Also include error transition
+    const errorEdge = outgoingEdges.find((e) =>
+      (e as { sourceHandle?: string }).sourceHandle === 'error'
+    );
+    if (errorEdge) {
+      const targetNode = allNodes.find((n) => n.id === errorEdge.target);
+      if (targetNode) {
+        config.on!['ERROR'] = { target: targetNode.data.label };
+      }
+    }
+  } else if (transitionMode === 'custom_events') {
+    // Custom events mode
+    for (const customEvent of agenticData.customEvents || []) {
+      const eventEdge = outgoingEdges.find((e) =>
+        (e as { sourceHandle?: string }).sourceHandle === `event-${customEvent.name}`
+      );
+      if (eventEdge) {
+        const targetNode = allNodes.find((n) => n.id === eventEdge.target);
+        if (targetNode) {
+          config.on![customEvent.name.toUpperCase()] = { target: targetNode.data.label };
+        }
+      }
+    }
+    // Also include error transition
+    const errorEdge = outgoingEdges.find((e) =>
+      (e as { sourceHandle?: string }).sourceHandle === 'error'
+    );
+    if (errorEdge) {
+      const targetNode = allNodes.find((n) => n.id === errorEdge.target);
+      if (targetNode) {
+        config.on!['ERROR'] = { target: targetNode.data.label };
+      }
+    }
+  } else {
+    // 'all' mode: process all outgoing edges normally
+    for (const edge of outgoingEdges) {
+      const targetNode = allNodes.find((n) => n.id === edge.target);
+      const eventName = edge.data?.event || (edge as { sourceHandle?: string }).sourceHandle;
+      if (targetNode && eventName) {
+        config.on![eventName.toUpperCase()] = { target: targetNode.data.label };
+      }
+    }
+  }
+
+  return config;
+}
+
+function buildRestFetchNodeConfig(
+  node: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[]
+): XStateStateConfig {
+  const restFetchData = node.data as RestFetchNodeData;
+  const config: XStateStateConfig = {
+    meta: {
+      domain_node: {
+        type: 'rest_fetch',
+        label: restFetchData.label,
+        url: restFetchData.url,
+        method: restFetchData.method,
+        auth_type: restFetchData.authType,
+        auth_credential: restFetchData.authCredential,
+        headers: restFetchData.headers,
+        body: restFetchData.body,
+        save_response_to: restFetchData.saveResponseTo,
+        on_success: restFetchData.onSuccess,
+        on_error: restFetchData.onError,
+        timeout_seconds: restFetchData.timeoutSeconds,
+      },
+    },
+    // Entry action performs the REST call
+    entry: ['rest_fetch'],
+    on: {},
+  };
+
+  // Find success and error edges
+  const outgoingEdges = allEdges.filter((e) => e.source === node.id);
+  const successEdge = outgoingEdges.find((e) =>
+    (e as { sourceHandle?: string }).sourceHandle === 'success'
+  );
+  const errorEdge = outgoingEdges.find((e) =>
+    (e as { sourceHandle?: string }).sourceHandle === 'error'
+  );
+
+  if (successEdge) {
+    const targetNode = allNodes.find((n) => n.id === successEdge.target);
+    if (targetNode) {
+      const successEvent = restFetchData.onSuccess || 'SUCCESS';
+      config.on![successEvent] = { target: targetNode.data.label };
+    }
+  }
+
+  if (errorEdge) {
+    const targetNode = allNodes.find((n) => n.id === errorEdge.target);
+    if (targetNode) {
+      const errorEvent = restFetchData.onError || 'ERROR';
+      config.on![errorEvent] = { target: targetNode.data.label };
     }
   }
 

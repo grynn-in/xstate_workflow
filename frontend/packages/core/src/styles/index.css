@@ -1431,8 +1431,8 @@
   background: var(--xsw-node-bg);
   border: 2px solid var(--xsw-border-color);
   border-radius: var(--xsw-radius-lg);
-  padding: var(--xsw-spacing-md);
-  min-width: 180px;
+  padding: var(--xsw-spacing-lg);
+  min-width: 220px;
   font-family: var(--xsw-font-family);
   box-shadow: var(--xsw-shadow);
   transition: box-shadow 0.2s, border-color 0.2s;
@@ -1466,7 +1466,7 @@
 }
 
 .xsw-approval-label {
-  font-size: var(--xsw-font-size-md);
+  font-size: var(--xsw-font-size-lg);
   font-weight: 600;
   color: #1f2937;
   flex: 1;
@@ -1831,7 +1831,7 @@
 
 .xsw-agentic-node {
   border-color: #818cf8;
-  min-width: 180px;
+  min-width: 220px;
   background: linear-gradient(135deg, rgba(129, 140, 248, 0.05) 0%, rgba(99, 102, 241, 0.08) 100%);
 }
 
@@ -1849,7 +1849,7 @@
 }
 
 .xsw-agentic-label {
-  font-size: var(--xsw-font-size-md);
+  font-size: var(--xsw-font-size-lg);
   font-weight: 600;
   color: #1f2937;
   flex: 1;

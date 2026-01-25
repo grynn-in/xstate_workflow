@@ -125,6 +125,7 @@
 
 {% block script %}
 <!-- Load bundle directly with cache-busting -->
+<link rel="stylesheet" href="/assets/xstate_workflow/js/workflow_builder.css?v={{ frappe.utils.now_datetime().timestamp() | int }}">
 <script src="/assets/xstate_workflow/js/workflow_builder.standalone.iife.js?v={{ frappe.utils.now_datetime().timestamp() | int }}"></script>
 <script>
   // Error handler
@@ -133,7 +134,7 @@
     if (root) {
       root.innerHTML = `
         <div class="error-container">
-          <h2>⚠️ Failed to Load</h2>
+          <h2>Failed to Load</h2>
           <p>The Workflow Builder could not be loaded. This might be because:</p>
           <ul style="text-align: left; color: #94a3b8;">
             <li>The JavaScript bundle hasn't been built yet</li>

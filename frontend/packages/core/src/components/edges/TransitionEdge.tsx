@@ -152,8 +152,6 @@ function TransitionEdgeComponent({
   }
 
   const transitionType = data?.transitionType || 'event';
-  const hasGuard = !!data?.guard;
-  const hasActions = (data?.actions?.length || 0) > 0;
 
   // Runtime state props
   const isFromCurrentState = data?.isFromCurrentState;
@@ -272,19 +270,6 @@ function TransitionEdgeComponent({
     return 1;
   };
 
-  // Build the label text
-  const getLabelText = () => {
-    if (transitionType === 'delayed' && data?.delay) {
-      const unit = data.delayUnit || 'ms';
-      return `after ${data.delay}${unit}`;
-    }
-    if (transitionType === 'always') {
-      return 'always';
-    }
-    return data?.event || '';
-  };
-
-  const labelText = getLabelText();
   const strokeColor = getStrokeColor();
 
   return (
@@ -330,40 +315,7 @@ function TransitionEdgeComponent({
         </EdgeLabelRenderer>
       )}
 
-      {labelText && (
-        <EdgeLabelRenderer>
-          <div
-            className={clsx(
-              'xsw-edge-label',
-              isAvailableTransition && 'xsw-edge-label-available',
-              isDisabledTransition && 'xsw-edge-label-disabled'
-            )}
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 20}px)`,
-              pointerEvents: 'all',
-              opacity: getOpacity(),
-              borderLeftColor: strokeColor,
-              borderLeftWidth: '3px',
-            }}
-          >
-            <span className="xsw-edge-label-event" style={{ color: strokeColor }}>{labelText}</span>
-            {(hasGuard || hasActions) && (
-              <span className="xsw-edge-label-icons">
-                {hasGuard && (
-                  <span
-                    title="Legacy guard condition - consider using a Threshold Gate node instead"
-                    className="xsw-legacy-guard-badge"
-                  >
-                    🛡
-                  </span>
-                )}
-                {hasActions && <span title="Has actions">⚡</span>}
-              </span>
-            )}
-          </div>
-        </EdgeLabelRenderer>
-      )}
+      {/* Edge labels removed - events shown in source node handles instead */}
     </>
   );
 }

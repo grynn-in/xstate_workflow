@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { listMachines, getDocTypes, type MachineListItem } from '@xstate-workflow/frappe-adapter';
 import '@xstate-workflow/core/styles';
+import '@xstate-workflow/core-v2/styles';
 
 /**
  * Format a date string for display

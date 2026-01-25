@@ -14,8 +14,17 @@ import type {
   ThresholdGateNodeData,
   ClassificationBranchNodeData,
   AutoActionNodeData,
+  AgenticNodeData,
+  RestFetchNodeData,
   EndNodeData,
   StartNodeData,
+  ToolConfig,
+  AllowedMethod,
+  DataInputConfig,
+  MCPServerConfig,
+  RestEndpointConfig,
+  DecisionRoute,
+  CustomAgentEvent,
 } from '../types';
 
 /**
@@ -715,6 +724,48 @@ function buildDomainNode(
         actionType: meta.action_type as AutoActionNodeData['actionType'],
         actionConfig: (meta.action_config as AutoActionNodeData['actionConfig']) || {},
       } as AutoActionNodeData;
+      break;
+
+    case 'agentic':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'atomic',
+        domainType: 'agentic',
+        agentType: meta.agent_type as AgenticNodeData['agentType'],
+        systemPrompt: meta.system_prompt as string,
+        model: meta.model as string,
+        enabledTools: meta.enabled_tools as ToolConfig[],
+        frappeAccess: meta.frappe_access as AgenticNodeData['frappeAccess'],
+        allowedMethods: meta.allowed_methods as AllowedMethod[],
+        dataInput: meta.data_input as DataInputConfig,
+        enabledMcps: meta.enabled_mcps as MCPServerConfig[],
+        restEndpoints: meta.rest_endpoints as RestEndpointConfig[],
+        transitionMode: meta.transition_mode as AgenticNodeData['transitionMode'],
+        decisionRoutes: meta.decision_routes as DecisionRoute[],
+        customEvents: meta.custom_events as CustomAgentEvent[],
+        maxIterations: meta.max_iterations as number,
+        timeoutSeconds: meta.timeout_seconds as number,
+        retryOnFailure: meta.retry_on_failure as boolean,
+        maxRetries: meta.max_retries as number,
+      } as AgenticNodeData;
+      break;
+
+    case 'rest_fetch':
+      nodeData = {
+        label: (meta.label as string) || stateName,
+        xstateType: 'atomic',
+        domainType: 'rest_fetch',
+        url: meta.url as string,
+        method: meta.method as RestFetchNodeData['method'],
+        authType: meta.auth_type as RestFetchNodeData['authType'],
+        authCredential: meta.auth_credential as string,
+        headers: meta.headers as Record<string, string>,
+        body: meta.body as string,
+        saveResponseTo: meta.save_response_to as string,
+        onSuccess: meta.on_success as string,
+        onError: meta.on_error as string,
+        timeoutSeconds: meta.timeout_seconds as number,
+      } as RestFetchNodeData;
       break;
 
     default:
