@@ -290,6 +290,9 @@ class ToolRegistry:
 		"""
 		Get list of enabled tools with proper access controls.
 
+		Frappe read/write tools are automatically included based on frappe_access level,
+		even if not explicitly in enabled_tools.
+
 		Args:
 			enabled_tools: List of tool configurations with name and enabled status
 
@@ -297,19 +300,39 @@ class ToolRegistry:
 			List of LangChain tool instances
 		"""
 		tools = []
+		added_tools = set()
 
-		# Standard Frappe tools
+		# Auto-include frappe tools based on access level
+		if self.frappe_access in ("read_only", "read_write", "full_crud"):
+			tools.append(self._create_frappe_read_tool())
+			added_tools.add("frappe_read")
+
+		if self.frappe_access in ("read_write", "full_crud"):
+			tools.append(self._create_frappe_write_tool())
+			added_tools.add("frappe_write")
+
+		# Process explicitly enabled tools
 		for tool_config in enabled_tools:
-			if not tool_config.get("enabled"):
+			if isinstance(tool_config, dict):
+				if not tool_config.get("enabled", True):
+					continue
+				tool_name = tool_config.get("name", "")
+			else:
+				tool_name = str(tool_config)
+
+			# Skip if already added
+			if tool_name in added_tools:
 				continue
 
-			tool_name = tool_config["name"]
-
 			if tool_name == "frappe_read" and self.frappe_access in ("read_only", "read_write", "full_crud"):
-				tools.append(self._create_frappe_read_tool())
+				if "frappe_read" not in added_tools:
+					tools.append(self._create_frappe_read_tool())
+					added_tools.add("frappe_read")
 
 			elif tool_name == "frappe_write" and self.frappe_access in ("read_write", "full_crud"):
-				tools.append(self._create_frappe_write_tool())
+				if "frappe_write" not in added_tools:
+					tools.append(self._create_frappe_write_tool())
+					added_tools.add("frappe_write")
 
 			elif tool_name == "frappe_search" and self.frappe_access in ("read_only", "read_write", "full_crud"):
 				tools.append(self._create_frappe_search_tool())
@@ -537,7 +560,7 @@ class ToolRegistry:
 
 		@tool
 		def frappe_read(
-			doctype: str, name: str = None, filters: dict = None, fields: list = None
+			doctype: str, name: str = None, filters: dict = None, fields: list = None, **kwargs
 		) -> Any:
 			"""Read document(s) from Frappe.
 
@@ -550,6 +573,7 @@ class ToolRegistry:
 			Returns:
 				Document data or list of documents
 			"""
+			# Ignore extra validation kwargs from pydantic/langchain
 			# Permission check
 			if not frappe.has_permission(doctype, "read"):
 				return {"error": f"No read permission for {doctype}"}
@@ -577,7 +601,7 @@ class ToolRegistry:
 			frappe.throw(_("langchain_core is not installed. Run: pip install langchain-core"))
 
 		@tool
-		def frappe_write(doctype: str, name: str = None, data: dict = None) -> Any:
+		def frappe_write(doctype: str, name: str = None, data: dict = None, **kwargs) -> Any:
 			"""Create or update a Frappe document.
 
 			Args:
@@ -588,6 +612,7 @@ class ToolRegistry:
 			Returns:
 				Success status and document name
 			"""
+			# Ignore extra validation kwargs
 			perm_type = "write" if name else "create"
 			if not frappe.has_permission(doctype, perm_type):
 				return {"error": f"No {perm_type} permission for {doctype}"}
@@ -615,7 +640,7 @@ class ToolRegistry:
 			frappe.throw(_("langchain_core is not installed. Run: pip install langchain-core"))
 
 		@tool
-		def frappe_search(doctype: str, query: str, fields: list = None, limit: int = 20) -> Any:
+		def frappe_search(doctype: str, query: str, fields: list = None, limit: int = 20, **kwargs) -> Any:
 			"""Search for documents matching a query.
 
 			Args:
@@ -654,7 +679,7 @@ class ToolRegistry:
 		registry = self  # Capture reference for closure
 
 		@tool
-		def frappe_method(method: str, args: dict = None) -> Any:
+		def frappe_method(method: str, args: dict = None, **kwargs) -> Any:
 			"""Call a whitelisted Frappe method.
 
 			Args:
@@ -669,6 +694,7 @@ class ToolRegistry:
 			2. Have @frappe.whitelist() decorator
 			3. User must have the required role (if specified)
 			"""
+			# Ignore any extra validation kwargs from pydantic/langchain
 			# Check if method is in allowed list with role check
 			if not registry._is_method_allowed(method):
 				return {"error": f"Method '{method}' is not allowed or you don't have the required role"}
@@ -693,7 +719,7 @@ class ToolRegistry:
 			frappe.throw(_("langchain_core is not installed. Run: pip install langchain-core"))
 
 		@tool
-		def web_search(query: str) -> str:
+		def web_search(query: str, **kwargs) -> str:
 			"""Search the web for information.
 
 			Args:
@@ -702,6 +728,7 @@ class ToolRegistry:
 			Returns:
 				Search results or error message
 			"""
+			# Ignore extra validation kwargs
 			# Try to use available search providers
 			try:
 				# Try SerpAPI if available
@@ -733,7 +760,7 @@ class ToolRegistry:
 			frappe.throw(_("langchain_core is not installed. Run: pip install langchain-core"))
 
 		@tool
-		def calculator(expression: str) -> str:
+		def calculator(expression: str, **kwargs) -> str:
 			"""Evaluate a mathematical expression safely.
 
 			Args:
@@ -822,7 +849,7 @@ class ToolRegistry:
 		registry = self  # Capture reference for rate limiting
 
 		@tool
-		def code_executor(code: str) -> str:
+		def code_executor(code: str, **kwargs) -> str:
 			"""Execute Python code in a sandboxed environment.
 
 			The code has access to:
@@ -984,7 +1011,7 @@ class ToolRegistry:
 		docname = self.docname
 
 		@tool
-		def twitter_post(text: str, reply_to: str = None) -> dict:
+		def twitter_post(text: str, reply_to: str = None, **kwargs) -> dict:
 			"""Post a tweet to Twitter/X.
 
 			Args:
@@ -1086,7 +1113,7 @@ class ToolRegistry:
 		docname = self.docname
 
 		@tool
-		def linkedin_post(text: str, visibility: str = "PUBLIC") -> dict:
+		def linkedin_post(text: str, visibility: str = "PUBLIC", **kwargs) -> dict:
 			"""Post to LinkedIn.
 
 			Args:
@@ -1177,7 +1204,7 @@ class ToolRegistry:
 		docname = self.docname
 
 		@tool
-		def facebook_post(message: str, link: str = None) -> dict:
+		def facebook_post(message: str, link: str = None, **kwargs) -> dict:
 			"""Post to a Facebook Page.
 
 			Args:
@@ -1260,7 +1287,7 @@ class ToolRegistry:
 		docname = self.docname
 
 		@tool
-		def reddit_post(subreddit: str, title: str, text: str = None, url: str = None) -> dict:
+		def reddit_post(subreddit: str, title: str, text: str = None, url: str = None, **kwargs) -> dict:
 			"""Post to a Reddit subreddit.
 
 			Args:
@@ -1393,7 +1420,7 @@ class ToolRegistry:
 		docname = self.docname
 
 		@tool
-		def send_newsletter(subject: str, content: str, subscriber_list: str = "Default") -> dict:
+		def send_newsletter(subject: str, content: str, subscriber_list: str = "Default", **kwargs) -> dict:
 			"""Send a newsletter email to subscribers.
 
 			Args:

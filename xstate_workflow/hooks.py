@@ -32,11 +32,9 @@ app_include_js = [
 ]
 
 # Include in website/web pages (for workflow builder standalone page)
-# NOTE: CSS is included globally, but JS is loaded per-page with cache-busting
-# to avoid heavy bundle on all pages and ensure fresh versions
+# NOTE: JS is loaded per-page with cache-busting to avoid heavy bundle on all pages
 web_include_css = [
     "/assets/xstate_workflow/css/workflow.css",
-    "/assets/xstate_workflow/js/workflow_builder.css"  # Built from standalone app
 ]
 # JS loaded directly in HTML templates (xstate-builder.html, xstate-dashboard.html)
 # with cache-busting timestamps for better cache control
@@ -53,15 +51,11 @@ website_context = {
 
 # Website route rules
 website_route_rules = [
-    # V1 routes (current production)
     {"from_route": "/xstate-builder", "to_route": "xstate-builder"},
     {"from_route": "/xstate-builder/<machine_id>", "to_route": "xstate-builder"},
     {"from_route": "/xstate-viewer", "to_route": "xstate-viewer"},
     {"from_route": "/xstate-viewer/<machine_id>", "to_route": "xstate-viewer"},
     {"from_route": "/my-approvals", "to_route": "my-approvals"},
-    # V2 routes (enhanced development)
-    {"from_route": "/xstate-builder-v2", "to_route": "xstate-builder-v2"},
-    {"from_route": "/xstate-builder-v2/<machine_id>", "to_route": "xstate-builder-v2"},
 ]
 
 # ============================================================================

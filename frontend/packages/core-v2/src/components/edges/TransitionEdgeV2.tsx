@@ -1,7 +1,6 @@
 import { memo, useId } from 'react';
 import {
   BaseEdge,
-  EdgeLabelRenderer,
   getSmoothStepPath,
   type Position,
 } from '@xyflow/react';
@@ -68,8 +67,6 @@ function TransitionEdgeV2Component({
   });
 
   const transitionType = data?.transitionType || 'event';
-  const hasGuard = !!data?.guard;
-  const hasActions = (data?.actions?.length || 0) > 0;
 
   // Runtime state props
   const isFromCurrentState = data?.isFromCurrentState;
@@ -124,19 +121,6 @@ function TransitionEdgeV2Component({
     return 1;
   };
 
-  // Build the label text
-  const getLabelText = () => {
-    if (transitionType === 'delayed' && data?.delay) {
-      const unit = data.delayUnit || 'ms';
-      return `after ${data.delay}${unit}`;
-    }
-    if (transitionType === 'always') {
-      return 'always';
-    }
-    return data?.event || '';
-  };
-
-  const labelText = getLabelText();
   const strokeColor = getStrokeColor();
   const animationId = `flow-animation-${uniqueId}`;
 
@@ -234,33 +218,7 @@ function TransitionEdgeV2Component({
         </g>
       )}
 
-      {/* Edge label */}
-      {labelText && (
-        <EdgeLabelRenderer>
-          <div
-            className={clsx(
-              'xsw-edge-label',
-              isAvailableTransition && 'xsw-edge-label-available',
-              isDisabledTransition && 'xsw-edge-label-disabled',
-              isAnimating && 'xsw-edge-label-animating'
-            )}
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-              pointerEvents: 'all',
-              opacity: getOpacity(),
-            }}
-          >
-            <span className="xsw-edge-label-event">{labelText}</span>
-            {(hasGuard || hasActions) && (
-              <span className="xsw-edge-label-icons">
-                {hasGuard && <span title="Has guard condition">&#128737;</span>}
-                {hasActions && <span title="Has actions">&#9889;</span>}
-              </span>
-            )}
-          </div>
-        </EdgeLabelRenderer>
-      )}
+      {/* Edge labels removed - events shown in source node handles instead */}
     </>
   );
 }

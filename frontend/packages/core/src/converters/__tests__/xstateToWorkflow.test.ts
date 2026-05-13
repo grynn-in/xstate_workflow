@@ -306,8 +306,9 @@ describe('xstateToWorkflow', () => {
       const result = xstateToWorkflow(xstate);
 
       const delayedEdge = result.edges.find((e) => e.data.transitionType === 'delayed');
-      expect(delayedEdge?.data.delay).toBe(5000);
-      expect(delayedEdge?.data.delayUnit).toBe('ms');
+      // 5000ms is converted to 5 seconds by convertMsToHumanReadable
+      expect(delayedEdge?.data.delay).toBe(5);
+      expect(delayedEdge?.data.delayUnit).toBe('seconds');
     });
 
     it('should convert delayed transitions with guards', () => {

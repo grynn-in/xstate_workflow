@@ -75,9 +75,17 @@ def get_domain_node_actions(machine_doc, ref_doc, instance) -> dict:
         "start_agent": lambda ctx, evt: _start_agent_action(
             ctx, evt, ref_doc, instance
         ),
+        "invoke_agent": lambda ctx, evt: _start_agent_action(
+            ctx, evt, ref_doc, instance
+        ),
 
         # REST Fetch node actions
         "rest_fetch": lambda ctx, evt: _rest_fetch_action(
+            ctx, evt, ref_doc, instance
+        ),
+
+        # Direct publishing action (no LLM needed)
+        "publish_content": lambda ctx, evt: _publish_content_action(
             ctx, evt, ref_doc, instance
         ),
     }
@@ -520,6 +528,208 @@ def _resolve_assignment_action(context: dict, event: dict, ref_doc, instance) ->
     return context
 
 
+def _publish_content_action(context: dict, event: dict, ref_doc, instance) -> dict:
+    """
+    Publish content to social media platforms directly (no LLM needed).
+
+    Reads content from document fields and posts to configured platforms.
+    This is a direct action - no AI agent involved.
+
+    Config in event:
+        platforms: List of platforms to publish to (twitter, linkedin, facebook, reddit)
+        field_mapping: Dict mapping platform -> document field
+            e.g. {"twitter": "twitter_version", "linkedin": "linkedin_version"}
+        on_success_event: Event to trigger on success (default: PUBLISHED)
+        on_failure_event: Event to trigger on failure (default: PUBLISH_FAILED)
+    """
+    import requests
+    from xstate_workflow.langgraph.tools import _resolve_credential
+
+    platforms = event.get("platforms", ["twitter", "linkedin"])
+    field_mapping = event.get("field_mapping", {
+        "twitter": "twitter_version",
+        "linkedin": "linkedin_version",
+    })
+    on_success = event.get("on_success_event", "PUBLISHED")
+    on_failure = event.get("on_failure_event", "PUBLISH_FAILED")
+
+    results = {}
+    errors = []
+
+    for platform in platforms:
+        field_name = field_mapping.get(platform, f"{platform}_version")
+        content = getattr(ref_doc, field_name, None) if hasattr(ref_doc, field_name) else None
+
+        if not content:
+            continue
+
+        try:
+            if platform == "twitter":
+                result = _post_to_twitter(content)
+            elif platform == "linkedin":
+                result = _post_to_linkedin(content)
+            elif platform == "facebook":
+                result = _post_to_facebook(content)
+            elif platform == "reddit":
+                result = _post_to_reddit(content, ref_doc)
+            else:
+                result = {"success": False, "error": f"Unknown platform: {platform}"}
+
+            results[platform] = result
+            if not result.get("success"):
+                errors.append(f"{platform}: {result.get('error')}")
+
+        except Exception as e:
+            errors.append(f"{platform}: {str(e)}")
+            results[platform] = {"success": False, "error": str(e)}
+
+    # Store results in context
+    context["_publish_results"] = results
+
+    # Update document with published URLs
+    published_urls = {}
+    for platform, result in results.items():
+        if result.get("success") and result.get("url"):
+            published_urls[platform] = result["url"]
+
+    if published_urls:
+        try:
+            ref_doc.reload()
+            ref_doc.published_urls = json.dumps(published_urls)
+            ref_doc.save(ignore_permissions=True)
+        except Exception as e:
+            frappe.log_error(f"Failed to save published URLs: {e}", "Publish Content Action")
+
+    # Trigger appropriate event
+    if errors:
+        context["_publish_errors"] = errors
+        frappe.log_error(f"Publishing errors: {errors}", "Publish Content Action")
+        # Trigger failure event
+        _trigger_workflow_event(ref_doc.doctype, ref_doc.name, on_failure)
+    else:
+        # Trigger success event
+        _trigger_workflow_event(ref_doc.doctype, ref_doc.name, on_success)
+
+    return context
+
+
+def _post_to_twitter(text: str) -> dict:
+    """Post to Twitter/X using API v2."""
+    import requests
+    from xstate_workflow.langgraph.tools import _resolve_credential
+
+    try:
+        from requests_oauthlib import OAuth1
+    except ImportError:
+        return {"success": False, "error": "requests_oauthlib not installed"}
+
+    consumer_key = _resolve_credential("config:twitter_consumer_key")
+    consumer_secret = _resolve_credential("config:twitter_consumer_secret")
+    access_token = _resolve_credential("config:twitter_access_token")
+    access_token_secret = _resolve_credential("config:twitter_access_token_secret")
+
+    if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
+        return {"success": False, "error": "Twitter credentials not configured"}
+
+    # Truncate to 280 chars
+    if len(text) > 280:
+        text = text[:277] + "..."
+
+    auth = OAuth1(consumer_key, consumer_secret, access_token, access_token_secret)
+    response = requests.post(
+        "https://api.twitter.com/2/tweets",
+        headers={"Content-Type": "application/json"},
+        json={"text": text},
+        auth=auth,
+        timeout=30,
+    )
+
+    if response.ok:
+        data = response.json()
+        tweet_id = data.get("data", {}).get("id")
+        return {
+            "success": True,
+            "tweet_id": tweet_id,
+            "url": f"https://twitter.com/i/status/{tweet_id}",
+        }
+    else:
+        # Parse error details from Twitter API
+        error_detail = response.text
+        try:
+            error_json = response.json()
+            if "detail" in error_json:
+                error_detail = error_json["detail"]
+            elif "errors" in error_json:
+                error_detail = "; ".join([e.get("message", str(e)) for e in error_json["errors"]])
+            elif "title" in error_json:
+                error_detail = f"{error_json.get('title')}: {error_json.get('detail', '')}"
+        except Exception:
+            pass
+        return {
+            "success": False,
+            "error": f"{response.status_code}: {error_detail}",
+            "status_code": response.status_code,
+        }
+
+
+def _post_to_linkedin(text: str) -> dict:
+    """Post to LinkedIn."""
+    from xstate_workflow.langgraph.tools import _resolve_credential
+
+    access_token = _resolve_credential("config:linkedin_access_token")
+    if not access_token:
+        return {"success": False, "error": "LinkedIn access token not configured"}
+
+    # LinkedIn API requires user URN - this is a simplified implementation
+    # Full implementation would need user URN from OAuth flow
+    return {"success": False, "error": "LinkedIn posting requires additional setup (user URN)"}
+
+
+def _post_to_facebook(text: str) -> dict:
+    """Post to Facebook."""
+    from xstate_workflow.langgraph.tools import _resolve_credential
+
+    access_token = _resolve_credential("config:facebook_access_token")
+    page_id = _resolve_credential("config:facebook_page_id")
+
+    if not access_token or not page_id:
+        return {"success": False, "error": "Facebook credentials not configured"}
+
+    import requests
+    response = requests.post(
+        f"https://graph.facebook.com/v18.0/{page_id}/feed",
+        data={"message": text, "access_token": access_token},
+        timeout=30,
+    )
+
+    if response.ok:
+        data = response.json()
+        post_id = data.get("id")
+        return {
+            "success": True,
+            "post_id": post_id,
+            "url": f"https://facebook.com/{post_id}",
+        }
+    else:
+        return {"success": False, "error": response.text}
+
+
+def _post_to_reddit(text: str, ref_doc) -> dict:
+    """Post to Reddit."""
+    # Reddit requires subreddit and title - simplified stub
+    return {"success": False, "error": "Reddit posting requires subreddit configuration"}
+
+
+def _trigger_workflow_event(doctype: str, docname: str, event: str) -> None:
+    """Trigger a workflow event asynchronously."""
+    from xstate_workflow.workflow_engine import trigger_event
+
+    try:
+        trigger_event(doctype, docname, event)
+    except Exception as e:
+        frappe.log_error(f"Failed to trigger {event}: {e}", "Publish Content Action")
+
+
 def _substitute_template(template: str, context: dict, ref_doc) -> str:
     """Substitute template variables."""
     if not template:
@@ -632,7 +842,8 @@ def handle_agentic_node_entry(
     timeout = timeout_seconds + 60
 
     # Enqueue agent execution as background job
-    frappe.enqueue(
+    print(f"[DEBUG] Enqueueing agent job for {ref_doc.doctype}/{ref_doc.name} state={state_name}")
+    job = frappe.enqueue(
         "xstate_workflow.langgraph.executor.run_agent",
         queue="long",
         timeout=timeout,
@@ -648,6 +859,7 @@ def handle_agentic_node_entry(
         attempt=0,
         context=context,  # Pass workflow context for data resolution
     )
+    print(f"[DEBUG] Job enqueued: {job}")
 
     # Mark in context that agent is running
     context["_agent_started"] = True
@@ -662,8 +874,37 @@ def handle_agentic_node_entry(
 
 def _start_agent_action(context: dict, event: dict, ref_doc, instance) -> dict:
     """Start agent action - delegates to handle_agentic_node_entry."""
+    import json
+
+    print(f"_start_agent_action called for instance {instance.name if instance else 'None'}")
+
+    # Get node_config from event or look it up from current state
+    node_config = event.get("node_config", {})
+
+    if not node_config or not node_config.get("meta", {}).get("domain_node"):
+        # Look up the node config from the current state in the machine
+        try:
+            machine_doc = frappe.get_doc("State Machine", instance.machine)
+            config = json.loads(machine_doc.json_config)
+            current_state = instance.current_state
+
+            print(f"Looking up state config for: {current_state}")
+
+            # Find the state config
+            state_config = config.get("states", {}).get(current_state, {})
+            if state_config:
+                node_config = {
+                    "id": current_state,
+                    "meta": state_config.get("meta", {})
+                }
+                print(f"Found node_config with domain_node type: {node_config.get('meta', {}).get('domain_node', {}).get('type')}")
+        except Exception as e:
+            frappe.log_error(f"Failed to get node config for agent: {e}", "Agent Config Error")
+            print(f"Error getting node config: {e}")
+
+    print(f"Calling handle_agentic_node_entry with node_config: {bool(node_config)}")
     handle_agentic_node_entry(
-        node_config=event.get("node_config", {}),
+        node_config=node_config,
         context=context,
         event=event,
         ref_doc=ref_doc,

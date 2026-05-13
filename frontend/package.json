@@ -8,8 +8,6 @@
     "build": "pnpm -r run build",
     "build:standalone": "pnpm --filter @xstate-workflow/standalone build",
     "build:desk": "pnpm --filter @xstate-workflow/desk-widget build",
-    "build:v2": "pnpm --filter @xstate-workflow/standalone-v2 build",
-    "dev:v2": "pnpm --filter @xstate-workflow/standalone-v2 dev",
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",

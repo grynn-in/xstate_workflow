@@ -172,12 +172,15 @@ class AgentExecutor:
 	@classmethod
 	def from_dict(cls, data: dict) -> "AgentExecutor":
 		"""Create executor from serialized configuration."""
+		# Normalize frappe_access from dict or string format
+		frappe_access = _normalize_frappe_access(data.get("frappe_access", "none"))
+
 		return cls(
 			agent_type=data.get("agent_type", "react"),
 			system_prompt=data.get("system_prompt", ""),
 			model=data.get("model"),
 			enabled_tools=data.get("enabled_tools", []),
-			frappe_access=data.get("frappe_access", "none"),
+			frappe_access=frappe_access,
 			allowed_methods=data.get("allowed_methods", []),
 			max_iterations=data.get("max_iterations", 10),
 			timeout_seconds=data.get("timeout_seconds", 300),
@@ -187,6 +190,34 @@ class AgentExecutor:
 			results_field=data.get("results_field"),
 			results_mode=data.get("results_mode", "replace"),
 		)
+
+
+def _normalize_frappe_access(value) -> str:
+	"""
+	Normalize frappe_access from dict or string format to a string.
+
+	Supports:
+		- String: "none", "read_only", "read_write", "full_crud"
+		- Dict: {"read_doc": True, "write_doc": True} (from visual builder)
+
+	Returns:
+		Normalized string access level
+	"""
+	if isinstance(value, str):
+		return value
+
+	if isinstance(value, dict):
+		read_doc = value.get("read_doc", False)
+		write_doc = value.get("write_doc", False)
+
+		if write_doc:
+			return "full_crud"  # write implies read
+		elif read_doc:
+			return "read_only"
+		else:
+			return "none"
+
+	return "none"
 
 
 def get_llm(model: str | None):
@@ -228,12 +259,19 @@ def get_llm(model: str | None):
 		model = default_model
 
 	# Map short model names to full identifiers
+	# Updated to Claude 4 / Claude 3.5 current versions (Jan 2025)
 	MODEL_ALIASES = {
-		"claude-3-opus": "claude-3-opus-20240229",
-		"claude-3-sonnet": "claude-3-sonnet-20240229",
-		"claude-3-haiku": "claude-3-haiku-20240307",
-		"claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
+		# Claude 4 models (current)
+		"claude-sonnet": "claude-sonnet-4-20250514",
+		"claude-opus": "claude-opus-4-20250514",
+		# Claude 3.5 models
+		"claude-haiku": "claude-3-5-haiku-20241022",
+		"claude-3-5-sonnet": "claude-sonnet-4-20250514",  # Upgrade to Claude 4
 		"claude-3-5-haiku": "claude-3-5-haiku-20241022",
+		# Legacy Claude 3 models (may be deprecated)
+		"claude-3-opus": "claude-opus-4-20250514",  # Upgrade to Claude 4
+		"claude-3-sonnet": "claude-sonnet-4-20250514",  # Upgrade to Claude 4
+		"claude-3-haiku": "claude-3-5-haiku-20241022",  # Upgrade to 3.5
 	}
 	model = MODEL_ALIASES.get(model, model)
 
@@ -439,7 +477,7 @@ def run_agent(
 		doctype: Document DocType
 		docname: Document name
 		state_name: Current workflow state name
-		transition_mode: How to determine transition (simple, decision, custom_events, all)
+		transition_mode: How to determine transition (simple, decision, event/custom_events, all)
 		decision_routes: List of decision route configurations
 		custom_events: List of custom event configurations
 		retry_config: Retry configuration (retry_on_failure, max_retries)
@@ -508,6 +546,11 @@ def run_agent(
 		context=context,
 	)
 	tools = tool_registry.get_tools(executor.enabled_tools)
+
+	# Debug: Log what tools are available
+	tool_names = [getattr(t, "name", str(t)) for t in tools]
+	print(f"[DEBUG] Agent tools available: {tool_names}")
+	print(f"[DEBUG] frappe_access: {executor.frappe_access}")
 
 	# Create agent based on type
 	try:
@@ -666,7 +709,11 @@ def determine_transition_event(
 
 	Args:
 		result: Agent execution result
-		transition_mode: How to determine transition
+		transition_mode: How to determine transition:
+			- "simple": Always returns AGENT_SUCCESS
+			- "decision": Match against decision_routes conditions
+			- "event" or "custom_events": Match against custom_events names
+			- "all": Try both decision and custom_events
 		decision_routes: List of decision route configurations
 		custom_events: List of custom event configurations
 
@@ -683,7 +730,8 @@ def determine_transition_event(
 	expected_decisions = []
 	if transition_mode in ("decision", "all"):
 		expected_decisions.extend([r.get("condition", "") for r in decision_routes])
-	if transition_mode in ("custom_events", "all"):
+	# "event" is a synonym for "custom_events" (used by the visual builder)
+	if transition_mode in ("custom_events", "event", "all"):
 		expected_decisions.extend([e.get("name", "") for e in custom_events])
 
 	# Extract decision with structured parsing and fuzzy matching
@@ -698,7 +746,8 @@ def determine_transition_event(
 			if _fuzzy_match_decision(decision, condition):
 				return f"DECISION_{condition.upper()}"
 
-	if transition_mode in ("custom_events", "all"):
+	# "event" is a synonym for "custom_events" (used by the visual builder)
+	if transition_mode in ("custom_events", "event", "all"):
 		for event in custom_events:
 			name = event.get("name", "")
 			if name.lower() == decision.lower():

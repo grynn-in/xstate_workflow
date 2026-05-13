@@ -1210,15 +1210,23 @@ def get_or_create_instance(doctype: str, docname: str) -> str:
     return instance.name
 
 
-def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_doc):
+def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_doc, context: dict = None):
     """Handle entry into a domain node state (create approval tasks, etc)."""
+    print(f"[DEBUG] handle_domain_node_entry called for state: {state_name}")
+
+    # Use provided context or load from instance
+    if context is None:
+        context = json.loads(instance.context or "{}")
+
     meta = state_config.get("meta", {})
     domain_node = meta.get("domain_node", {})
 
     if not domain_node:
-        return
+        print(f"[DEBUG] No domain_node in state config, returning early")
+        return context
 
     node_type = domain_node.get("type")
+    print(f"[DEBUG] Domain node type: {node_type}")
 
     # Handle "submit" node type - auto-submit document when workflow reaches this state
     if node_type == "submit":
@@ -1382,6 +1390,7 @@ def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_
 
     if node_type == "agentic":
         # Start AI agent execution
+        print(f"[DEBUG] Starting agentic node handler for {state_name}")
         try:
             from xstate_workflow.domain_nodes.handlers import handle_agentic_node_entry
 
@@ -1393,17 +1402,16 @@ def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_
                 }
             }
 
-            # Get current context
-            context = json.loads(instance.context or "{}")
-
-            # Call the handler
-            handle_agentic_node_entry(
+            print(f"[DEBUG] Calling handle_agentic_node_entry...")
+            # Call the handler - it will update context in place
+            context = handle_agentic_node_entry(
                 node_config=node_config,
                 context=context,
                 event={},
                 ref_doc=ref_doc,
                 instance=instance
             )
+            print(f"[DEBUG] handle_agentic_node_entry completed successfully")
 
             frappe.msgprint(
                 _("AI agent started for workflow processing"),
@@ -1411,9 +1419,13 @@ def handle_domain_node_entry(instance, state_name: str, state_config: dict, ref_
                 alert=True
             )
         except ImportError as e:
+            print(f"[DEBUG] ImportError: {e}")
             frappe.log_error(f"Import error starting agent: {e}")
         except Exception as e:
+            print(f"[DEBUG] Exception starting agent: {e}")
             frappe.log_error(f"Failed to start agent: {e}")
+
+    return context
 
 
 def get_instance_for_doc(doctype: str, docname: str):
@@ -1653,7 +1665,7 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
 
         # Handle domain node entry (create approval tasks, etc)
         if target_state_config:
-            handle_domain_node_entry(instance, target_state, target_state_config, ref_doc)
+            context = handle_domain_node_entry(instance, target_state, target_state_config, ref_doc, context)
 
         # Check if final state
         is_final = target_state_config and target_state_config.get("type") == "final"
@@ -1717,6 +1729,7 @@ def execute_transition(instance_name: str, event: str, input_data: dict = None) 
 def find_state_config(config: dict, state_path: str) -> dict | None:
     """
     Find state configuration, supporting nested/hierarchical states.
+    Case-insensitive lookup with normalization (handles "research_topic" vs "Research Topic").
 
     Args:
         config: Full machine config
@@ -1730,10 +1743,22 @@ def find_state_config(config: dict, state_path: str) -> dict | None:
 
     for part in parts:
         states = current.get("states", {})
+        # Direct lookup first (case-sensitive)
         if part in states:
             current = states[part]
         else:
-            return None
+            # Case-insensitive fallback with normalization
+            # Normalize both: lowercase, replace spaces/underscores
+            normalized_part = part.lower().replace("_", "").replace(" ", "")
+            found = False
+            for state_name, state_config in states.items():
+                normalized_name = state_name.lower().replace("_", "").replace(" ", "")
+                if normalized_part == normalized_name:
+                    current = state_config
+                    found = True
+                    break
+            if not found:
+                return None
 
     return current
 
@@ -2826,6 +2851,9 @@ def post_transition_actions(instance, event: str, from_state: str, to_state: str
     machine = frappe.get_doc("State Machine", instance.machine)
     config = json.loads(machine.json_config)
 
+    # Sync status field on the document
+    _sync_status_field(config, to_state, ref_doc)
+
     # Check for notification config
     notifications = config.get("meta", {}).get("notifications", {})
 
@@ -2872,6 +2900,67 @@ def send_workflow_email(instance, ref_doc, recipients: list, subject: str, messa
         )
     except Exception as e:
         frappe.log_error(f"Workflow email failed: {e}")
+
+
+def _sync_status_field(config: dict, state_name: str, ref_doc):
+    """
+    Sync the workflow state to the document's status field.
+
+    Looks for status in this order:
+    1. state.meta.domain_node.status - explicit status for this state
+    2. state.meta.status - alternative location
+    3. No update if neither is configured
+
+    The status_field can be configured in config.meta.status_field,
+    defaults to "status" if the document has that field.
+    """
+    if not ref_doc:
+        return
+
+    # Get the status field name (default: "status")
+    status_field = config.get("meta", {}).get("status_field", "status")
+
+    # Check if the document has this field
+    if not hasattr(ref_doc, status_field):
+        return
+
+    # Find the state config
+    state_config = find_state_config(config, state_name)
+    if not state_config:
+        return
+
+    # Look for status value in state config
+    meta = state_config.get("meta", {})
+    status_value = (
+        meta.get("domain_node", {}).get("status")
+        or meta.get("status")
+    )
+
+    if not status_value:
+        return
+
+    # Validate status value against field options (if it's a Select field)
+    doc_meta = frappe.get_meta(ref_doc.doctype)
+    field_meta = doc_meta.get_field(status_field)
+
+    if field_meta and field_meta.fieldtype == "Select" and field_meta.options:
+        valid_options = [opt.strip() for opt in field_meta.options.split("\n")]
+        if status_value not in valid_options:
+            frappe.log_error(
+                f"Invalid status '{status_value}' for state '{state_name}'. Valid options: {valid_options}",
+                "Workflow Status Sync"
+            )
+            return
+
+    # Update the status field
+    try:
+        ref_doc.reload()
+        current_value = getattr(ref_doc, status_field, None)
+        if current_value != status_value:
+            setattr(ref_doc, status_field, status_value)
+            ref_doc.save(ignore_permissions=True)
+    except Exception as e:
+        frappe.log_error(f"Failed to sync status field: {e}", "Workflow Status Sync")
 
 
 def cleanup_old_snapshots():

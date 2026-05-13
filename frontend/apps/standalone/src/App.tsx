@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef, type DragEvent } from 'react';
+import { useCallback, useEffect, useState, useRef, useMemo, type DragEvent } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -7,24 +7,34 @@ import {
   BackgroundVariant,
   type OnSelectionChangeFunc,
   type ReactFlowInstance,
+  type NodeDragHandler,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
+// Import from core-v2 which re-exports core + v2 enhancements
 import {
   allNodeTypes,
   edgeTypes,
   PropertiesPanel,
   NodePalette,
   ResizablePanel,
-  useWorkflowBuilder,
+  HelperLines,
+  useWorkflowBuilderWithHistory,
+  useCopyPaste,
+  useHelperLines,
   workflowToXState,
   xstateToWorkflow,
+  elkLayout,
+  applyFlowLayout,
   type WorkflowBuilderConfig,
   type WorkflowNode,
   type WorkflowEdge,
   type XStateNodeType,
-} from '@xstate-workflow/core';
+  type FrappeField,
+  type EdgePathType,
+} from '@xstate-workflow/core-v2';
 import '@xstate-workflow/core/styles';
+import '@xstate-workflow/core-v2/styles';
 
 import {
   saveMachine,
@@ -37,9 +47,8 @@ import {
   getRoles,
   getUsers,
   getMcpConnections,
-  type FrappeField,
-  type MCPConnectionInfo,
   type MachineListItem,
+  type MCPConnectionInfo,
 } from '@xstate-workflow/frappe-adapter';
 
 interface AppProps {
@@ -55,10 +64,8 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
 
-  // DocType state
+  // DocType and fields state
   const [attachedDoctype, setAttachedDoctype] = useState<string | undefined>(initialAttachedDoctype);
-
-  // Data for property panels
   const [doctypesList, setDoctypesList] = useState<string[]>([]);
   const [doctypeFields, setDoctypeFields] = useState<FrappeField[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
@@ -69,6 +76,9 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
   // Workflow list for selector
   const [workflowsList, setWorkflowsList] = useState<MachineListItem[]>([]);
 
+  // Edge style toggle (bezier = curved with draggable control, smoothstep = orthogonal)
+  const [edgePathType, setEdgePathType] = useState<EdgePathType>('smoothstep');
+
   const {
     nodes,
     edges,
@@ -76,6 +86,8 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     selectedEdge,
     setSelectedNode,
     setSelectedEdge,
+    setNodes,
+    setEdges,
     onNodesChange,
     onEdgesChange,
     onConnect,
@@ -84,11 +96,94 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     updateEdge,
     getConfig,
     loadConfig,
-  } = useWorkflowBuilder({
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    takeSnapshot,
+  } = useWorkflowBuilderWithHistory({
     onChange: () => setHasUnsavedChanges(true),
+    maxHistorySize: 50,
+    debounceMs: 500,
   });
 
-  // Fetch doctypes, roles, users, MCP connections, and workflows on mount
+  // Copy/Paste functionality
+  const {
+    copy,
+    paste,
+    cut,
+    canPaste,
+  } = useCopyPaste({
+    nodes: nodes as WorkflowNode[],
+    edges: edges as WorkflowEdge[],
+    selectedNodeIds: selectedNode ? [selectedNode.id] : [],
+    pasteOffset: { x: 50, y: 50 },
+    onCopy: () => {
+      // Optional: show toast notification
+    },
+    onPaste: (newNodes, newEdges) => {
+      // Add pasted nodes and edges
+      setNodes((prev) => [...prev, ...newNodes] as any);
+      setEdges((prev) => [...prev, ...newEdges] as any);
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+    },
+    onCut: (nodeIds) => {
+      // Remove cut nodes and their connected edges
+      setNodes((prev) => prev.filter((n) => !nodeIds.includes(n.id)));
+      setEdges((prev) =>
+        prev.filter((e) => !nodeIds.includes(e.source) && !nodeIds.includes(e.target))
+      );
+      setSelectedNode(undefined);
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+    },
+  });
+
+  // Apply edge path type to all edges
+  const edgesWithPathType = useMemo(() => {
+    return edges.map((edge) => ({
+      ...edge,
+      data: {
+        ...edge.data,
+        edgePathType,
+      },
+    }));
+  }, [edges, edgePathType]);
+
+  // Helper lines for node alignment
+  const {
+    horizontalLines,
+    verticalLines,
+    onNodeDrag: onHelperLinesDrag,
+    onNodeDragEnd: onHelperLinesDragEnd,
+  } = useHelperLines({
+    nodes: nodes.map((n) => ({
+      id: n.id,
+      position: n.position,
+      measured: n.measured,
+    })),
+    threshold: 5,
+    enableSnapping: false, // Can be enabled for snap-to-grid behavior
+  });
+
+  // Handle node drag for helper lines
+  const handleNodeDrag: NodeDragHandler = useCallback(
+    (_, node) => {
+      onHelperLinesDrag(node.id, node.position);
+    },
+    [onHelperLinesDrag]
+  );
+
+  // Handle node drag end
+  const handleNodeDragStop: NodeDragHandler = useCallback(
+    () => {
+      onHelperLinesDragEnd();
+    },
+    [onHelperLinesDragEnd]
+  );
+
+  // Fetch doctypes list, roles, users, MCP connections, and workflows on mount
   useEffect(() => {
     getDocTypes().then(setDoctypesList).catch(console.error);
     getRoles().then(setAvailableRoles).catch(console.error);
@@ -100,7 +195,9 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
   // Fetch doctype fields when attachedDoctype changes
   useEffect(() => {
     if (attachedDoctype) {
-      getDocTypeFields(attachedDoctype).then(setDoctypeFields).catch(console.error);
+      getDocTypeFields(attachedDoctype)
+        .then(setDoctypeFields)
+        .catch(console.error);
     } else {
       setDoctypeFields([]);
     }
@@ -151,6 +248,77 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     }
   }, [initialMachineId, loadConfig]);
 
+  // Keyboard shortcuts for undo/redo and copy/paste/cut
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check if focus is on an input/textarea (don't intercept typing)
+      const target = event.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // Ctrl+Z / Cmd+Z for undo
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        if (canUndo) {
+          undo();
+        }
+      }
+
+      // Ctrl+Shift+Z / Cmd+Shift+Z for redo (common on Mac)
+      // Ctrl+Y / Cmd+Y for redo (common on Windows)
+      if (
+        ((event.ctrlKey || event.metaKey) && event.key === 'z' && event.shiftKey) ||
+        ((event.ctrlKey || event.metaKey) && event.key === 'y')
+      ) {
+        event.preventDefault();
+        if (canRedo) {
+          redo();
+        }
+      }
+
+      // Ctrl+C / Cmd+C for copy
+      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+        event.preventDefault();
+        copy();
+      }
+
+      // Ctrl+V / Cmd+V for paste
+      if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+        event.preventDefault();
+        if (canPaste) {
+          paste();
+        }
+      }
+
+      // Ctrl+X / Cmd+X for cut
+      if ((event.ctrlKey || event.metaKey) && event.key === 'x') {
+        event.preventDefault();
+        cut();
+      }
+
+      // Delete / Backspace for delete selected
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (selectedNode) {
+          event.preventDefault();
+          const nodeId = selectedNode.id;
+          setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+          setEdges((prev) =>
+            prev.filter((e) => e.source !== nodeId && e.target !== nodeId)
+          );
+          setSelectedNode(undefined);
+          setHasUnsavedChanges(true);
+          takeSnapshot();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [undo, redo, canUndo, canRedo, copy, paste, cut, canPaste, selectedNode, setNodes, setEdges, setSelectedNode, takeSnapshot]);
+
   // Track selection with a ref to avoid React Flow's internal state issues
   const lastSelectionRef = useRef<{ nodeId?: string; edgeId?: string }>({});
 
@@ -196,8 +364,11 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
       const config = getConfig();
       const xstate = workflowToXState(config);
 
+      // Generate a machine ID if this is a new workflow
+      const effectiveMachineId = machineId || `workflow_${Date.now()}`;
+
       const result = await saveMachine(
-        machineId || null,
+        effectiveMachineId,
         machineTitle,
         xstate,
         config,
@@ -269,6 +440,75 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     }
   }, [hasUnsavedChanges, loadConfig]);
 
+  // Handle delete selected
+  const handleDelete = useCallback(() => {
+    if (selectedNode) {
+      const nodeId = selectedNode.id;
+      setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+      setEdges((prev) =>
+        prev.filter((e) => e.source !== nodeId && e.target !== nodeId)
+      );
+      setSelectedNode(undefined);
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+    } else if (selectedEdge) {
+      const edgeId = selectedEdge.id;
+      setEdges((prev) => prev.filter((e) => e.id !== edgeId));
+      setSelectedEdge(undefined);
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+    }
+  }, [selectedNode, selectedEdge, setNodes, setEdges, setSelectedNode, setSelectedEdge, takeSnapshot]);
+
+  // Handle auto-layout using ELK algorithm
+  const handleAutoLayout = useCallback(async () => {
+    if (nodes.length === 0) return;
+
+    try {
+      // Run ELK layout algorithm
+      const { nodes: layoutNodes } = await elkLayout(
+        nodes.map((n) => ({ ...n })),
+        edges.map((e) => ({ ...e })),
+        {
+          direction: 'LR', // Left-to-right for workflows
+          spacing: [120, 200], // [nodeToNode, betweenLayers]
+        }
+      );
+
+      // Update node positions
+      setNodes(layoutNodes);
+
+      setHasUnsavedChanges(true);
+      takeSnapshot();
+
+      // Fit view after layout
+      if (reactFlowInstance) {
+        setTimeout(() => {
+          reactFlowInstance.fitView({ padding: 0.2 });
+        }, 50);
+      }
+    } catch (error) {
+      console.error('ELK layout error:', error);
+    }
+  }, [nodes, edges, setNodes, takeSnapshot, reactFlowInstance]);
+
+  // Handle flow-based layout (simpler BFS-based algorithm)
+  const handleFlowLayout = useCallback(() => {
+    if (nodes.length === 0) return;
+
+    const layoutNodes = applyFlowLayout(nodes, edges);
+    setNodes(layoutNodes);
+    setHasUnsavedChanges(true);
+    takeSnapshot();
+
+    // Fit view after layout
+    if (reactFlowInstance) {
+      setTimeout(() => {
+        reactFlowInstance.fitView({ padding: 0.2 });
+      }, 50);
+    }
+  }, [nodes, edges, setNodes, takeSnapshot, reactFlowInstance]);
+
   // Handle add node from palette (click)
   const handleAddNode = useCallback(
     (type: XStateNodeType, position: { x: number; y: number }) => {
@@ -322,12 +562,12 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
       <div className="xsw-layout-toolbar">
         <div className="xsw-toolbar">
           <div className="xsw-toolbar-left">
-            <span style={{ fontSize: '20px' }}>⬡</span>
+            <span style={{ fontSize: '20px' }}>&#x2B21;</span>
             <select
               className="xsw-select"
               value={machineId || ''}
               onChange={(e) => handleLoadWorkflow(e.target.value)}
-              style={{ minWidth: '140px', maxWidth: '180px' }}
+              style={{ width: '200px' }}
               title="Select an existing workflow to edit, or choose 'New Workflow' to start fresh"
             >
               <option value="">+ New Workflow</option>
@@ -340,9 +580,9 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
             <input
               type="text"
               className="xsw-input"
-              style={{ width: '150px', fontWeight: 600 }}
+              style={{ width: '180px', fontWeight: 600 }}
               value={machineTitle}
-              title="Workflow name"
+              title="Workflow name - displayed in the dashboard and used for identification"
               onChange={(e) => {
                 setMachineTitle(e.target.value);
                 setHasUnsavedChanges(true);
@@ -355,19 +595,108 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
                 setAttachedDoctype(e.target.value || undefined);
                 setHasUnsavedChanges(true);
               }}
-              style={{ minWidth: '120px', maxWidth: '150px' }}
-              title="DocType this workflow is attached to"
+              style={{ width: '160px' }}
+              title="DocType this workflow is attached to - enables field-based guards and actions"
             >
-              <option value="">DocType...</option>
+              <option value="">Select DocType...</option>
               {doctypesList.map((dt) => (
                 <option key={dt} value={dt}>{dt}</option>
               ))}
             </select>
             {hasUnsavedChanges && (
-              <span style={{ color: '#f59e0b', fontSize: '12px' }}>● Unsaved</span>
+              <span style={{ color: '#f59e0b', fontSize: '12px' }}>&#x25CF; Unsaved</span>
             )}
+            <span
+              style={{
+                marginLeft: '8px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                fontWeight: 600,
+                background: '#3b82f6',
+                color: 'white',
+                borderRadius: '4px',
+              }}
+            >
+              V2
+            </span>
           </div>
           <div className="xsw-toolbar-right">
+            {/* Undo/Redo buttons */}
+            <div style={{ display: 'flex', gap: '2px', marginRight: '8px' }}>
+              <button
+                className="xsw-button xsw-button-secondary"
+                onClick={undo}
+                disabled={!canUndo}
+                title="Undo (Ctrl+Z)"
+                style={{ padding: '4px 8px', minWidth: 'auto' }}
+              >
+                &#x21B6;
+              </button>
+              <button
+                className="xsw-button xsw-button-secondary"
+                onClick={redo}
+                disabled={!canRedo}
+                title="Redo (Ctrl+Shift+Z)"
+                style={{ padding: '4px 8px', minWidth: 'auto' }}
+              >
+                &#x21B7;
+              </button>
+            </div>
+            {/* Delete button */}
+            <button
+              className="xsw-button xsw-button-secondary"
+              onClick={handleDelete}
+              disabled={!selectedNode && !selectedEdge}
+              title="Delete selected (Delete)"
+              style={{ padding: '4px 8px', minWidth: 'auto', marginRight: '8px' }}
+            >
+              &#x1F5D1;
+            </button>
+            {/* Layout buttons */}
+            <button
+              className="xsw-button xsw-button-secondary"
+              onClick={handleAutoLayout}
+              disabled={nodes.length === 0}
+              title="Auto-arrange nodes using ELK layered algorithm"
+              style={{ marginRight: '4px' }}
+            >
+              ELK Layout
+            </button>
+            <button
+              className="xsw-button xsw-button-secondary"
+              onClick={handleFlowLayout}
+              disabled={nodes.length === 0}
+              title="Arrange nodes in flow order (BFS from initial state)"
+              style={{ marginRight: '8px' }}
+            >
+              Flow Layout
+            </button>
+            {/* Edge style toggle */}
+            <div className="xsw-edge-toggle" style={{ display: 'flex', marginRight: '8px' }}>
+              <button
+                className={`xsw-button ${edgePathType === 'smoothstep' ? 'xsw-button-primary' : 'xsw-button-secondary'}`}
+                onClick={() => setEdgePathType('smoothstep')}
+                title="Orthogonal edges (right angles)"
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '4px 0 0 4px',
+                  borderRight: 'none',
+                }}
+              >
+                Ortho
+              </button>
+              <button
+                className={`xsw-button ${edgePathType === 'bezier' ? 'xsw-button-primary' : 'xsw-button-secondary'}`}
+                onClick={() => setEdgePathType('bezier')}
+                title="Bezier curves (smooth)"
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '0 4px 4px 0',
+                }}
+              >
+                Bezier
+              </button>
+            </div>
             <button
               className="xsw-button xsw-button-secondary"
               onClick={handleExport}
@@ -402,7 +731,7 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
         <div className="xsw-layout-canvas" ref={reactFlowWrapper}>
           <ReactFlow
             nodes={nodes}
-            edges={edges}
+            edges={edgesWithPathType}
             nodeTypes={allNodeTypes}
             edgeTypes={edgeTypes}
             onNodesChange={onNodesChange}
@@ -410,6 +739,8 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
             onPaneClick={onPaneClick}
+            onNodeDrag={handleNodeDrag}
+            onNodeDragStop={handleNodeDragStop}
             onInit={setReactFlowInstance}
             onDragOver={onDragOver}
             onDrop={onDrop}
@@ -417,11 +748,16 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
             className="xsw-canvas"
             defaultEdgeOptions={{
               type: 'transition',
+              data: { edgePathType },
             }}
           >
             <Controls />
             <MiniMap className="xsw-minimap" />
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            <HelperLines
+              horizontalLines={horizontalLines}
+              verticalLines={verticalLines}
+            />
           </ReactFlow>
         </div>
 
