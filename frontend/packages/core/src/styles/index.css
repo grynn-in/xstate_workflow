@@ -342,6 +342,17 @@
   background: var(--xsw-selected-color);
 }
 
+/* Offset handle for smoothstep edges - slightly different appearance */
+.xsw-offset-handle-inner {
+  border-radius: 3px; /* Square-ish to indicate vertical-only drag */
+  width: 14px;
+  height: 8px;
+}
+
+.xsw-edge-offset-handle:hover .xsw-offset-handle-inner {
+  transform: scaleY(1.3);
+}
+
 /* Handle Styles */
 .xsw-handle {
   width: 12px;

@@ -25,6 +25,7 @@ import {
   workflowToXState,
   xstateToWorkflow,
   elkLayout,
+  applyFlowLayout,
   type WorkflowBuilderConfig,
   type WorkflowNode,
   type WorkflowEdge,
@@ -491,6 +492,23 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
     }
   }, [nodes, edges, setNodes, takeSnapshot, reactFlowInstance]);
 
+  // Handle flow-based layout (simpler BFS-based algorithm)
+  const handleFlowLayout = useCallback(() => {
+    if (nodes.length === 0) return;
+
+    const layoutNodes = applyFlowLayout(nodes, edges);
+    setNodes(layoutNodes);
+    setHasUnsavedChanges(true);
+    takeSnapshot();
+
+    // Fit view after layout
+    if (reactFlowInstance) {
+      setTimeout(() => {
+        reactFlowInstance.fitView({ padding: 0.2 });
+      }, 50);
+    }
+  }, [nodes, edges, setNodes, takeSnapshot, reactFlowInstance]);
+
   // Handle add node from palette (click)
   const handleAddNode = useCallback(
     (type: XStateNodeType, position: { x: number; y: number }) => {
@@ -634,15 +652,24 @@ export function App({ machineId: initialMachineId, attachedDoctype: initialAttac
             >
               &#x1F5D1;
             </button>
-            {/* Auto-layout button */}
+            {/* Layout buttons */}
             <button
               className="xsw-button xsw-button-secondary"
               onClick={handleAutoLayout}
               disabled={nodes.length === 0}
               title="Auto-arrange nodes using ELK layered algorithm"
+              style={{ marginRight: '4px' }}
+            >
+              ELK Layout
+            </button>
+            <button
+              className="xsw-button xsw-button-secondary"
+              onClick={handleFlowLayout}
+              disabled={nodes.length === 0}
+              title="Arrange nodes in flow order (BFS from initial state)"
               style={{ marginRight: '8px' }}
             >
-              Auto-layout
+              Flow Layout
             </button>
             {/* Edge style toggle */}
             <div className="xsw-edge-toggle" style={{ display: 'flex', marginRight: '8px' }}>

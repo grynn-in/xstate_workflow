@@ -25,8 +25,10 @@ export interface RuntimeEdgeData extends WorkflowEdgeData {
   isVisitedTransition?: boolean;
   /** Edge would be available but is blocked by guard */
   isDisabledTransition?: boolean;
-  /** Custom control point for edge path (user-draggable) */
+  /** Custom control point for edge path (user-draggable, for bezier) */
   controlPoint?: { x: number; y: number };
+  /** Custom offset for smoothstep edges (vertical offset from midpoint) */
+  smoothstepOffset?: number;
   /** Edge path type: bezier (default, draggable) or smoothstep (orthogonal) */
   edgePathType?: EdgePathType;
 }
@@ -122,8 +124,11 @@ function TransitionEdgeComponent({
   let labelX: number;
   let labelY: number;
 
+  // Smoothstep offset for orthogonal edges (vertical adjustment)
+  const smoothstepOffset = data?.smoothstepOffset ?? 0;
+
   if (edgePathType === 'smoothstep') {
-    // Use React Flow's built-in smoothstep path
+    // Use React Flow's built-in smoothstep path with custom center offset
     const [path, labelXPos, labelYPos] = getSmoothStepPath({
       sourceX,
       sourceY,
@@ -132,10 +137,11 @@ function TransitionEdgeComponent({
       targetY,
       targetPosition,
       borderRadius: 8,
+      centerY: ((sourceY + targetY) / 2) + smoothstepOffset,
     });
     edgePath = path;
     labelX = labelXPos;
-    labelY = labelYPos;
+    labelY = labelYPos + smoothstepOffset;
   } else {
     // Use custom quadratic bezier path (default)
     edgePath = getQuadraticPath(
@@ -159,7 +165,7 @@ function TransitionEdgeComponent({
   const isVisitedTransition = data?.isVisitedTransition;
   const isDisabledTransition = data?.isDisabledTransition;
 
-  // Handle control point drag
+  // Handle control point drag (for bezier edges)
   const handleControlPointDrag = useCallback(
     (event: React.MouseEvent) => {
       event.stopPropagation();
@@ -208,7 +214,49 @@ function TransitionEdgeComponent({
     [id, controlPoint, setEdges, zoom]
   );
 
-  // Reset control point to default
+  // Handle smoothstep offset drag (for orthogonal edges)
+  const handleSmoothstepOffsetDrag = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      setIsDragging(true);
+
+      const startY = event.clientY;
+      const startOffset = smoothstepOffset;
+      const currentZoom = zoom;
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        // Only track vertical movement for smoothstep offset
+        const deltaY = (moveEvent.clientY - startY) / currentZoom;
+
+        setEdges((edges) =>
+          edges.map((edge) => {
+            if (edge.id === id) {
+              return {
+                ...edge,
+                data: {
+                  ...edge.data,
+                  smoothstepOffset: startOffset + deltaY,
+                },
+              };
+            }
+            return edge;
+          })
+        );
+      };
+
+      const handleMouseUp = () => {
+        setIsDragging(false);
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    },
+    [id, smoothstepOffset, setEdges, zoom]
+  );
+
+  // Reset control point to default (for bezier)
   const handleResetControlPoint = useCallback(
     (event: React.MouseEvent) => {
       event.stopPropagation();
@@ -220,6 +268,28 @@ function TransitionEdgeComponent({
               data: {
                 ...edge.data,
                 controlPoint: undefined, // Remove custom control point
+              },
+            };
+          }
+          return edge;
+        })
+      );
+    },
+    [id, setEdges]
+  );
+
+  // Reset smoothstep offset to default
+  const handleResetSmoothstepOffset = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      setEdges((edges) =>
+        edges.map((edge) => {
+          if (edge.id === id) {
+            return {
+              ...edge,
+              data: {
+                ...edge.data,
+                smoothstepOffset: undefined, // Reset to 0
               },
             };
           }
@@ -295,7 +365,7 @@ function TransitionEdgeComponent({
         }}
       />
 
-      {/* Draggable control point - only show when edge is selected and using bezier path */}
+      {/* Draggable control point for bezier edges */}
       {selected && edgePathType === 'bezier' && (
         <EdgeLabelRenderer>
           <div
@@ -311,6 +381,26 @@ function TransitionEdgeComponent({
             title="Drag to adjust curve. Double-click to reset."
           >
             <div className="xsw-control-point-inner" />
+          </div>
+        </EdgeLabelRenderer>
+      )}
+
+      {/* Draggable offset handle for smoothstep (orthogonal) edges */}
+      {selected && edgePathType === 'smoothstep' && (
+        <EdgeLabelRenderer>
+          <div
+            className="xsw-edge-control-point xsw-edge-offset-handle"
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'all',
+              cursor: isDragging ? 'ns-resize' : 'ns-resize',
+            }}
+            onMouseDown={handleSmoothstepOffsetDrag}
+            onDoubleClick={handleResetSmoothstepOffset}
+            title="Drag up/down to adjust path. Double-click to reset."
+          >
+            <div className="xsw-control-point-inner xsw-offset-handle-inner" />
           </div>
         </EdgeLabelRenderer>
       )}

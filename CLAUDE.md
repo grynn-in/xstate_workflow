@@ -15,7 +15,7 @@ XState Workflow is a state machine-based workflow engine for Frappe Framework. I
 ### Backend Development
 
 ```bash
-# Site name: xs.local
+# Site name: xs.local (accessible at http://xs.local:8001)
 
 # Run all Python tests
 bench --site xs.local run-tests --app xstate_workflow
@@ -151,6 +151,15 @@ frappe.xstate_workflow.get_state(doctype, docname)
 7. Persist new state to Machine Instance
 8. Emit socket events for real-time UI updates
 
+## Development Approach
+
+**Always follow Test-Driven Development (TDD):**
+1. Write failing tests first that describe the expected behavior
+2. Implement the minimum code to make tests pass
+3. Refactor while keeping tests green
+
+For backend changes, write Python tests in `xstate_workflow/tests/`. For frontend changes, write tests alongside components using Vitest.
+
 ## Code Style
 
 - **Python**: Ruff formatting with tabs (indent-style = "tab"), line-length 110
@@ -191,3 +200,17 @@ Workflows auto-trigger on document events via hooks.py:
 - `after_insert`: Initializes workflow instance
 - `on_update`: Triggers configured events
 - `before_submit`/`before_save`: Validates workflow state allows operation
+
+### Agentic Node Configuration
+
+Agentic (AI agent) nodes require LLM API keys to be configured in **XState Workflow Settings**:
+
+1. Go to `/app/xstate-workflow-settings`
+2. Set the **Anthropic API Key** (for Claude models) and/or **OpenAI API Key** (for GPT models)
+3. Optionally set the **Default LLM Model**
+
+Supported model aliases:
+- `claude-sonnet` → Claude 3.5 Sonnet
+- `claude-haiku` → Claude 3.5 Haiku
+- `claude-opus` → Claude 3 Opus
+- `gpt-4`, `gpt-4o`, `gpt-3.5-turbo` → OpenAI models

@@ -28,32 +28,225 @@ import type {
 } from '../types';
 
 /**
- * Simple grid-based layout for initial node positioning
- * Used when no saved positions exist - ELK auto-layout can be applied later
+ * Extract all transition targets from a state config
  */
-function calculateSimpleGridLayout(
-  states: Record<string, unknown>,
-  nodeWidth = 250,
+function extractTransitionTargets(config: XStateStateConfig): string[] {
+  const targets: string[] = [];
+
+  if (config.on) {
+    for (const transitions of Object.values(config.on)) {
+      if (transitions == null) continue;
+      const transArray = Array.isArray(transitions) ? transitions : [transitions];
+      for (const trans of transArray) {
+        if (typeof trans === 'string') {
+          targets.push(trans);
+        } else if (trans?.target) {
+          targets.push(trans.target);
+        }
+      }
+    }
+  }
+
+  if (config.always) {
+    const alwaysArray = Array.isArray(config.always) ? config.always : [config.always];
+    for (const trans of alwaysArray) {
+      if (trans == null) continue;
+      if (typeof trans === 'string') {
+        targets.push(trans);
+      } else if (trans?.target) {
+        targets.push(trans.target);
+      }
+    }
+  }
+
+  if (config.after) {
+    for (const transitions of Object.values(config.after)) {
+      if (transitions == null) continue;
+      const transArray = Array.isArray(transitions) ? transitions : [transitions];
+      for (const trans of transArray) {
+        if (typeof trans === 'string') {
+          targets.push(trans);
+        } else if (trans?.target) {
+          targets.push(trans.target);
+        }
+      }
+    }
+  }
+
+  return targets;
+}
+
+/**
+ * Flow-based hierarchical layout for state machines
+ * Places nodes in layers based on their distance from the initial state
+ */
+function calculateFlowLayout(
+  states: Record<string, XStateStateConfig>,
+  initialState: string,
   nodeHeight = 120,
-  gapX = 200,
-  gapY = 150,
-  startX = 50,
-  startY = 50,
-  columns = 3
+  layerGap = 300,   // Horizontal gap between layers
+  nodeGap = 150,    // Vertical gap between nodes in same layer
+  startX = 100,
+  startY = 100
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>();
   const stateNames = Object.keys(states);
 
-  stateNames.forEach((name, index) => {
-    const col = index % columns;
-    const row = Math.floor(index / columns);
-    positions.set(name, {
-      x: startX + col * (nodeWidth + gapX),
-      y: startY + row * (nodeHeight + gapY),
+  if (stateNames.length === 0) return positions;
+
+  // Build adjacency list from transitions
+  const adjacency = new Map<string, Set<string>>();
+  for (const [name, config] of Object.entries(states)) {
+    adjacency.set(name, new Set());
+    const transitionTargets = extractTransitionTargets(config);
+    for (const target of transitionTargets) {
+      if (states[target]) {
+        adjacency.get(name)!.add(target);
+      }
+    }
+  }
+
+  // BFS to assign layers (distance from initial state)
+  const layers = new Map<string, number>();
+  const queue: string[] = [];
+
+  // Start from initial state, or first state if no initial
+  const startState = initialState && states[initialState] ? initialState : stateNames[0];
+  queue.push(startState);
+  layers.set(startState, 0);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const currentLayer = layers.get(current)!;
+
+    for (const next of adjacency.get(current) || []) {
+      if (!layers.has(next)) {
+        layers.set(next, currentLayer + 1);
+        queue.push(next);
+      }
+    }
+  }
+
+  // Handle unreachable states (put them in the last layer + 1)
+  const maxLayer = Math.max(...layers.values(), 0);
+  for (const name of stateNames) {
+    if (!layers.has(name)) {
+      layers.set(name, maxLayer + 1);
+    }
+  }
+
+  // Group states by layer
+  const layerGroups = new Map<number, string[]>();
+  for (const [name, layer] of layers) {
+    if (!layerGroups.has(layer)) {
+      layerGroups.set(layer, []);
+    }
+    layerGroups.get(layer)!.push(name);
+  }
+
+  // Position nodes
+  for (const [layer, nodesInLayer] of layerGroups) {
+    const x = startX + layer * layerGap;
+    const totalHeight = nodesInLayer.length * nodeHeight + (nodesInLayer.length - 1) * nodeGap;
+    const startYForLayer = startY + (layer === 0 ? 0 : -totalHeight / 4); // Center vertically
+
+    nodesInLayer.forEach((name, index) => {
+      positions.set(name, {
+        x,
+        y: startYForLayer + index * (nodeHeight + nodeGap),
+      });
     });
-  });
+  }
 
   return positions;
+}
+
+/**
+ * Apply flow-based hierarchical layout to existing workflow nodes
+ * Can be called to re-layout nodes based on their transitions
+ */
+export function applyFlowLayout<N extends WorkflowNode>(
+  nodes: N[],
+  edges: WorkflowEdge[],
+  nodeHeight = 120,
+  layerGap = 300,
+  nodeGap = 150,
+  startX = 100,
+  startY = 100
+): N[] {
+  if (nodes.length === 0) return nodes;
+
+  // Build adjacency list from edges
+  const adjacency = new Map<string, Set<string>>();
+  for (const node of nodes) {
+    adjacency.set(node.id, new Set());
+  }
+  for (const edge of edges) {
+    if (adjacency.has(edge.source) && adjacency.has(edge.target)) {
+      adjacency.get(edge.source)!.add(edge.target);
+    }
+  }
+
+  // Find initial node (marked as isInitial or first node)
+  const initialNode = nodes.find(n => n.data?.isInitial) || nodes[0];
+
+  // BFS to assign layers
+  const layers = new Map<string, number>();
+  const queue: string[] = [initialNode.id];
+  layers.set(initialNode.id, 0);
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const currentLayer = layers.get(currentId)!;
+
+    for (const nextId of adjacency.get(currentId) || []) {
+      if (!layers.has(nextId)) {
+        layers.set(nextId, currentLayer + 1);
+        queue.push(nextId);
+      }
+    }
+  }
+
+  // Handle unreachable nodes
+  const maxLayer = Math.max(...layers.values(), 0);
+  for (const node of nodes) {
+    if (!layers.has(node.id)) {
+      layers.set(node.id, maxLayer + 1);
+    }
+  }
+
+  // Group nodes by layer
+  const layerGroups = new Map<number, string[]>();
+  for (const [nodeId, layer] of layers) {
+    if (!layerGroups.has(layer)) {
+      layerGroups.set(layer, []);
+    }
+    layerGroups.get(layer)!.push(nodeId);
+  }
+
+  // Calculate positions
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const [layer, nodeIds] of layerGroups) {
+    const x = startX + layer * layerGap;
+    const totalHeight = nodeIds.length * nodeHeight + (nodeIds.length - 1) * nodeGap;
+    const startYForLayer = startY + (layer === 0 ? 0 : -totalHeight / 4);
+
+    nodeIds.forEach((nodeId, index) => {
+      positions.set(nodeId, {
+        x,
+        y: startYForLayer + index * (nodeHeight + nodeGap),
+      });
+    });
+  }
+
+  // Apply positions to nodes
+  return nodes.map(node => {
+    const position = positions.get(node.id);
+    if (position) {
+      return { ...node, position };
+    }
+    return node;
+  });
 }
 
 // Helper to check if a state has domain node metadata
@@ -131,10 +324,10 @@ export function xstateToWorkflow(
     }
   }
 
-  // If no existing positions, use simple grid layout
+  // If no existing positions, use flow-based hierarchical layout
   // (ELK auto-layout can be applied later via the UI for better positioning)
   if (existingPositions.size === 0 && xstate.states) {
-    existingPositions = calculateSimpleGridLayout(xstate.states);
+    existingPositions = calculateFlowLayout(xstate.states, xstate.initial);
   }
 
   // Process all states
